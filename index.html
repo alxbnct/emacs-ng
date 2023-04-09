@@ -423,13 +423,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#package-management" class="md-nav__link">
-    Package management
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -855,13 +848,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#package-management" class="md-nav__link">
-    Package management
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -903,9 +889,8 @@
 
 <h2 id="intro">Intro<a class="headerlink" href="#intro" title="Permanent link">#</a></h2>
 <p>emacs-ng is based off of the <code>master</code> branch of emacs, and regularly
-merges in the latest changes(this branch includes the native
-compilation feature from Andrea Corallo).</p>
-<p>The last merged commit is <code>6ebe8b03d8</code> (Aug 24 2021).</p>
+merges using Github Actions(Runs at 00:00, only on Saturday).</p>
+<p>The last merged commit is <code>6523359dfe</code> (04 01 2023).</p>
 <h2 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">#</a></h2>
 <p>The goal of this fork is to explore new development approaches. To
 accomplish this, we aim to maintain an inclusive and innovative
@@ -939,11 +924,20 @@ rendering engine written in Rust from Mozilla. Firefox, the research
 web browser Servo, and other GUI frameworks draw with it. emacs-ng use
 it as a new experimental graphic backend to leverage GPU hardware.</p>
 <h3 id="dynamic-modules">Dynamic modules<a class="headerlink" href="#dynamic-modules" title="Permanent link">#</a></h3>
+<blockquote>
+<p><strong>Warning</strong>
+<strong>This feature is currently unmaintained</strong></p>
+</blockquote>
 <p>Allow dynamic modules to access <em>more of Emacs's internals</em>. Dynamic
 modules can be written to take advantage of these extra
 functionalities when they are available, while at the same time being
 <em>fully compatible</em> with vanilla Emacs.</p>
 <h3 id="denojavascript">Deno/Javascript<a class="headerlink" href="#denojavascript" title="Permanent link">#</a></h3>
+<blockquote>
+<p><strong>Note</strong>
+<strong>This feature is currently outdated and been disabled. However there is</strong>
+<strong><a href="https://github.com/emacs-ng/emacs-ng/pull/463">this</a> to bring it back.</strong></p>
+</blockquote>
 <p>One of emacs-ng's primary features is integrating the <a href="https://deno.land/">Deno
 Runtime</a>, which allows execution of JavaScript and
 Typescript within Emacs. The details of that feature are listed below,
@@ -975,13 +969,6 @@ gains. Async I/O from Deno, WebWorkers, and WebAsm, gives you the
 tools to make Emacs a smoother and faster experience without having to
 install additional tools to launch as background processes or worry
 about shared library versions.</p>
-<h3 id="package-management">Package management<a class="headerlink" href="#package-management" title="Permanent link">#</a></h3>
-<p>use-package and straight are really great so we decided to make them
-built-in packages. But since we don't want to break configs, this is
-an <a href="https://emacs-ng.github.io/emacs-ng/package-management">optional feature</a>.</p>
-<p>Just put this line into your <code>~/.emacs.d/early-init.el</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="p">(</span><span class="k">setq</span> <span class="nv">ng-straight-bootstrap-at-startup</span> <span class="no">t</span><span class="p">)</span>
-</code></pre></div>
                 
                   
                     
@@ -990,7 +977,7 @@ an <a href="https://emacs-ng.github.io/emacs-ng/package-management">optional fea
 <div class="md-source-date">
   <small>
     
-      Last update: <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date">April 7, 2022</span>
+      Last update: <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date">April 9, 2023</span>
     
   </small>
 </div>
