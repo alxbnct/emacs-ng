@@ -174,11 +174,16 @@ correctly unloads Eshell and all of its modules.
 After manually editing 'eshell-aliases-file', you can use this command
 to load the edited aliases.
 
++++
+*** 'rgrep' is now a builtin command.
+Running 'rgrep' in Eshell now uses the Emacs grep facility instead of
+calling external rgrep.
+
 ** Shell Mode
 
 +++
 *** New user option 'shell-get-old-input-include-continuation-lines'.
-When this user option is non-nil, 'shell-get-old-input' (C-RET)
+When this user option is non-nil, 'shell-get-old-input' ('C-RET')
 includes multiple shell "\" continuation lines from command output.
 Default is nil.
 
@@ -261,6 +266,16 @@ When non-nil, it will automatically register every package as a
 project, that you can quickly select using 'project-switch-project'
 ('C-x p p').
 
+** Flymake
+
++++
+*** New user option 'flymake-show-diagnostics-at-end-of-line'.
+When non-nil, Flymake shows summarized descriptions of diagnostics at
+the end of the line.  Depending on your preference, this can either be
+distracting and easily confused with actual code, or a significant
+early aid that relieves you from moving the buffer or reaching for the
+mouse to consult an error message.
+
 
 * New Modes and Packages in Emacs 30.1
 
@@ -318,6 +333,8 @@ hooks named after the feature name, like 'esh-mode-unload-hook'.
 
 
 * Lisp Changes in Emacs 30.1
+
+** New variable 'inhibit-auto-fill' to temporarily prevent auto-fill.
 
 ** Functions and variables to transpose sexps
 
@@ -433,13 +450,28 @@ any unwind forms, as in
 
     (unwind-protect (read buffer))
 
-because the behaviour is identical to that of the argument; there is
+because the behavior is identical to that of the argument; there is
 no protection of any kind.  Perhaps the intended unwind forms have
 been misplaced or forgotten, or the use of 'unwind-protect' could be
 simplified away.
 
 This warning can be suppressed using 'with-suppressed-warnings' with
 the warning name 'suspicious'.
+
+---
+*** Warn about more ignored function return values.
+The compiler now warns when the return value from certain functions is
+ignored.  Example:
+
+    (progn (nreverse my-list) my-list)
+
+will elicit a warning because it is usually pointless to call
+'nreverse' on a list without using the returned value.  To silence the
+warning, make use of the value in some way, such as assigning it to a
+variable.  You can also wrap the function call in '(ignore ...)'.
+
+This warning can be suppressed using 'with-suppressed-warnings' with
+the warning name 'ignored-return-value'.
 
 +++
 ** New function 'file-user-uid'.
@@ -448,19 +480,19 @@ so it will return the remote UID for remote files (or -1 if the
 connection has no associated user).
 
 +++
-** 'fset' and 'defalias' now signal an error for circular alias chains.
-Previously, 'fset' and 'defalias' could be made to build circular
-function indirection chains as in
+** 'fset', 'defalias' and 'defvaralias' now signal an error for cyclic aliases.
+Previously, 'fset', 'defalias' and 'defvaralias' could be made to
+build circular function and variable indirection chains as in
 
     (defalias 'able 'baker)
     (defalias 'baker 'able)
 
-but trying to call them would often make Emacs hang.  Now, an attempt
+but trying to use them would sometimes make Emacs hang.  Now, an attempt
 to create such a loop results in an error.
 
-Since circular alias chains now cannot occur, 'function-alias-p' and
-'indirect-function' will never signal an error.  Their second
-'noerror' arguments have no effect and are therefore obsolete.
+Since circular alias chains now cannot occur, 'function-alias-p',
+'indirect-function' and 'indirect-variable' will never signal an error.
+Their 'noerror' arguments have no effect and are therefore obsolete.
 
 
 * Changes in Emacs 30.1 on Non-Free Operating Systems
