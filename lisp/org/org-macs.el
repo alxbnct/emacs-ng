@@ -36,6 +36,10 @@
 
 ;;; Org version verification.
 
+(defvar org--inhibit-version-check nil
+  "When non-nil, assume that Org is a part of Emacs source.
+For internal use only.  See Emacs bug #62762.
+This variable is only supposed to be changed by Emacs build scripts.")
 (defmacro org-assert-version ()
   "Assert compile time and runtime version match."
   ;; We intentionally use a more permissive `org-release' instead of
@@ -45,7 +49,7 @@
   ;; `org-assert-version' calls would fail using strict
   ;; `org-git-version' check because the generated Org version strings
   ;; will not match.
-  `(unless (equal (org-release) ,(org-release))
+  `(unless (or org--inhibit-version-check (equal (org-release) ,(org-release)))
      (warn "Org version mismatch.  Org loading aborted.
 This warning usually appears when a built-in Org version is loaded
 prior to the more recent Org version.
