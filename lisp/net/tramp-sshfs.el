@@ -244,8 +244,8 @@ arguments to pass to the OPERATION."
         (setq result
 	      (insert-file-contents
 	       (tramp-fuse-local-file-name filename) visit beg end replace))
-      (when visit (setq buffer-file-name filename))
-      (cons filename (cdr result)))))
+      (when visit (setq buffer-file-name filename)))
+    (cons filename (cdr result))))
 
 (defun tramp-sshfs-handle-process-file
   (program &optional infile destination display &rest args)
@@ -399,8 +399,7 @@ connection if a previous connection has died for some reason."
 	      :name (tramp-get-connection-name vec)
 	      :buffer (tramp-get-connection-buffer vec)
 	      :server t :host 'local :service t :noquery t)))
-      (process-put p 'tramp-vector vec)
-      (set-process-query-on-exit-flag p nil)
+      (tramp-post-process-creation p vec)
 
       ;; Set connection-local variables.
       (tramp-set-connection-local-variables vec)))
