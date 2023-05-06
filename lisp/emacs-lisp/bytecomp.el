@@ -317,7 +317,9 @@ Elements of the list may be:
   lexical-dynamic
               lexically bound variable declared dynamic elsewhere
   make-local  calls to `make-variable-buffer-local' that may be incorrect.
-  mapcar      mapcar called for effect.
+  ignored-return-value
+              function called without using the return value where this
+              is likely to be a mistake
   not-unused  warning about using variables with symbol names starting with _.
   constants   let-binding of, or assignment to, constants/nonvariables.
   docstrings  docstrings that are too wide (longer than
@@ -330,7 +332,7 @@ Elements of the list may be:
   empty-body  body argument to a special form or macro is empty.
 
 If the list begins with `not', then the remaining elements specify warnings to
-suppress.  For example, (not mapcar) will suppress warnings about mapcar.
+suppress.  For example, (not free-vars) will suppress the `free-vars' warning.
 
 The t value means \"all non experimental warning types\", and
 excludes the types in `byte-compile--emacs-build-warning-types'.
@@ -3490,6 +3492,29 @@ lambda-expression."
             (byte-compile-report-error
              (format-message "`%s' defined after use in %S (missing `require' of a library file?)"
                      (car form) form)))
+
+        (when byte-compile--for-effect
+          (let ((sef (function-get (car form) 'side-effect-free)))
+            (cond
+             ((and sef (or (eq sef 'error-free)
+                           byte-compile-delete-errors))
+              ;; This transform is normally done in the Lisp optimiser,
+              ;; so maybe we don't need to bother about it here?
+              (setq form (cons 'progn (cdr form)))
+              (setq handler #'byte-compile-progn))
+             ((and (or sef (function-get (car form) 'important-return-value))
+                   ;; Don't warn for arguments to `ignore'.
+                   (not (eq byte-compile--for-effect 'for-effect-no-warn))
+                   (byte-compile-warning-enabled-p
+                    'ignored-return-value (car form)))
+              (byte-compile-warn-x
+               (car form)
+               "value from call to `%s' is unused%s"
+               (car form)
+               (cond ((eq (car form) 'mapcar)
+                      "; use `mapc' or `dolist' instead")
+                     (t "")))))))
+
         (if (and handler
                  ;; Make sure that function exists.
                  (and (functionp handler)
@@ -3513,6 +3538,26 @@ lambda-expression."
         (byte-compile-discard))
     (pop byte-compile-form-stack)))
 
+(let ((important-return-value-fns
+       '(
+         ;; These functions are side-effect-free except for the
+         ;; behaviour of functions passed as argument.
+         mapcar mapcan mapconcat
+         assoc plist-get plist-member
+
+         ;; It's safe to ignore the value of `sort' and `nreverse'
+         ;; when used on arrays, but most calls pass lists.
+         nreverse sort
+
+         ;; Adding these functions causes many warnings;
+         ;; evaluate how many of them are false first.
+         ;;delq delete
+         ;;nconc plist-put
+         )))
+  (dolist (fn important-return-value-fns)
+    (put fn 'important-return-value t)))
+
+
 (defun byte-compile-normal-call (form)
   (when (and (symbolp (car form))
              (byte-compile-warning-enabled-p 'callargs (car form)))
@@ -3523,11 +3568,7 @@ lambda-expression."
     (byte-compile-callargs-warn form))
   (if byte-compile-generate-call-tree
       (byte-compile-annotate-call-tree form))
-  (when (and byte-compile--for-effect (eq (car form) 'mapcar)
-             (byte-compile-warning-enabled-p 'mapcar 'mapcar))
-    (byte-compile-warn-x
-     (car form)
-     "`mapcar' called for effect; use `mapc' or `dolist' instead"))
+
   (byte-compile-push-constant (car form))
   (mapc 'byte-compile-form (cdr form))	; wasteful, but faster.
   (byte-compile-out 'byte-call (length (cdr form))))
@@ -4367,7 +4408,8 @@ This function is never called when `lexical-binding' is nil."
 
 (defun byte-compile-ignore (form)
   (dolist (arg (cdr form))
-    (byte-compile-form arg t))
+    ;; Compile each argument for-effect but suppress unused-value warnings.
+    (byte-compile-form arg 'for-effect-no-warn))
   (byte-compile-form nil))
 
 ;; Return the list of items in CONDITION-PARAM that match PRED-LIST.

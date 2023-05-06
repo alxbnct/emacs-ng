@@ -24,7 +24,7 @@
 
 ;; While packages managed by package.el use tarballs for distributing
 ;; the source code, this extension allows for packages to be fetched
-;; and updated directly from a version control system.
+;; and upgraded directly from a version control system.
 ;;
 ;; To install a package from source use `package-vc-install'.  If you
 ;; aren't interested in activating a package, you can use
@@ -41,9 +41,6 @@
 
 ;; - Allow maintaining patches that are ported back onto regular
 ;;   packages and maintained between versions.
-;;
-;; - Add a heuristic for guessing a `:lisp-dir' when cloning directly
-;;  from a URL.
 
 ;;; Code:
 
@@ -58,7 +55,7 @@
 (defgroup package-vc nil
   "Manage packages from VC checkouts."
   :group 'package
-  :link '(custom-manual "(emacs) Package from Source")
+  :link '(custom-manual "(emacs) Fetching Package Sources")
   :prefix "package-vc-"
   :version "29.1")
 
@@ -150,32 +147,9 @@ is a symbol designating the package and SPEC is one of:
 
 - nil, if any package version can be installed;
 - a version string, if that specific revision is to be installed;
-- a property list, describing a package specification.  Valid
-  key/value pairs are
-
-   `:url' (string)
-      The URL of the repository used to fetch the package source.
-
-   `:branch' (string)
-      If given, the name of the branch to checkout after cloning the directory.
-
-   `:lisp-dir' (string)
-      The repository-relative name of the directory to use for loading the Lisp
-      sources.  If not given, the value defaults to the root directory
-      of the repository.
-
-   `:main-file' (string)
-      The main file of the project, relevant to gather package metadata.
-      If not given, the assumed default is the package name with \".el\"
-      appended to it.
-
-   `:vc-backend' (symbol)
-      A symbol of the VC backend to use for cloning the package.  The
-      value ought to be a member of `vc-handled-backends'.  If omitted,
-      `vc-clone' will fall back onto the archive default or on
-      `package-vc-default-backend'.
-
-  All other keys are ignored.
+- a property list, describing a package specification.  For more
+  details, please consult the subsection \"Specifying Package
+  Sources\" in the Info node `(emacs)Fetching Package Sources'.
 
 This user option will be automatically updated to store package
 specifications for packages that are not specified in any
@@ -189,6 +163,7 @@ archive."
                                          (:branch string)
                                          (:lisp-dir string)
                                          (:main-file string)
+                                         (:doc string)
                                          (:vc-backend symbol)))))
   :version "29.1")
 
@@ -697,19 +672,19 @@ installed package."
                #'string=)))
 
 ;;;###autoload
-(defun package-vc-update-all ()
-  "Attempt to update all installed VC packages."
+(defun package-vc-upgrade-all ()
+  "Attempt to upgrade all installed VC packages."
   (interactive)
   (dolist (package package-alist)
     (dolist (pkg-desc (cdr package))
       (when (package-vc-p pkg-desc)
-        (package-vc-update pkg-desc))))
-  (message "Done updating packages."))
+        (package-vc-upgrade pkg-desc))))
+  (message "Done upgrading packages."))
 
 ;;;###autoload
-(defun package-vc-update (pkg-desc)
-  "Attempt to update the package PKG-DESC."
-  (interactive (list (package-vc--read-package-desc "Update VC package: " t)))
+(defun package-vc-upgrade (pkg-desc)
+  "Attempt to upgrade the package PKG-DESC."
+  (interactive (list (package-vc--read-package-desc "Upgrade VC package: " t)))
   ;; HACK: To run `package-vc--unpack-1' after checking out the new
   ;; revision, we insert a hook into `vc-post-command-functions', and
   ;; remove it right after it ran.  To avoid running the hook multiple
@@ -907,7 +882,7 @@ Rebuilding an installation means scraping for new autoload
 cookies, re-compiling Emacs Lisp files, building and installing
 any documentation, downloading any missing dependencies.  This
 command does not fetch new revisions from a remote server.  That
-is the responsibility of `package-vc-update'.  Interactively,
+is the responsibility of `package-vc-upgrade'.  Interactively,
 prompt for the name of the package to rebuild."
   (interactive (list (package-vc--read-package-desc "Rebuild package: " t)))
   (package-vc--unpack-1 pkg-desc (package-desc-dir pkg-desc)))
