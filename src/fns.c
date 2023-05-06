@@ -452,6 +452,9 @@ If string STR1 is greater, the value is a positive number N;
      || defined __s390__ || defined __s390x__)		\
   && defined __OPTIMIZE__
 #define HAVE_FAST_UNALIGNED_ACCESS 1
+#else
+#define HAVE_FAST_UNALIGNED_ACCESS 0
+#endif
 
 /* Load a word from a possibly unaligned address.  */
 static inline size_t
@@ -461,10 +464,6 @@ load_unaligned_size_t (const void *p)
   memcpy (&x, p, sizeof x);
   return x;
 }
-
-#else
-#define HAVE_FAST_UNALIGNED_ACCESS 0
-#endif
 
 DEFUN ("string-lessp", Fstring_lessp, Sstring_lessp, 2, 2, 0,
        doc: /* Return non-nil if STRING1 is less than STRING2 in lexicographic order.
@@ -1964,6 +1963,20 @@ assq_no_quit (Lisp_Object key, Lisp_Object alist)
   for (; ! NILP (alist); alist = XCDR (alist))
     if (CONSP (XCAR (alist)) && EQ (XCAR (XCAR (alist)), key))
       return XCAR (alist);
+  return Qnil;
+}
+
+/* Assq but doesn't signal.  Unlike assq_no_quit, this function still
+   detects circular lists; like assq_no_quit, this function does not
+   allow quits and never signals.  If anything goes wrong, it returns
+   Qnil.  */
+Lisp_Object
+assq_no_signal (Lisp_Object key, Lisp_Object alist)
+{
+  Lisp_Object tail = alist;
+  FOR_EACH_TAIL_SAFE (tail)
+    if (CONSP (XCAR (tail)) && EQ (XCAR (XCAR (tail)), key))
+      return XCAR (tail);
   return Qnil;
 }
 
@@ -6128,29 +6141,40 @@ second optional argument ABSOLUTE is non-nil, the value counts the lines
 from the absolute start of the buffer, disregarding the narrowing.  */)
   (register Lisp_Object position, Lisp_Object absolute)
 {
-  ptrdiff_t pos, start = BEGV_BYTE;
+  ptrdiff_t pos_byte, start_byte = BEGV_BYTE;
 
   if (MARKERP (position))
-    pos = marker_position (position);
+    {
+      /* We don't trust the byte position if the marker's buffer is
+         not the current buffer.  */
+      if (XMARKER (position)->buffer != current_buffer)
+	pos_byte = CHAR_TO_BYTE (marker_position (position));
+      else
+	pos_byte = marker_byte_position (position);
+    }
   else if (NILP (position))
-    pos = PT;
+    pos_byte = PT_BYTE;
   else
     {
       CHECK_FIXNUM (position);
-      pos = XFIXNUM (position);
+      ptrdiff_t pos = XFIXNUM (position);
+      /* Check that POSITION is valid. */
+      if (pos < BEG || pos > Z)
+	args_out_of_range_3 (position, make_int (BEG), make_int (Z));
+      pos_byte = CHAR_TO_BYTE (pos);
     }
 
   if (!NILP (absolute))
-    start = BEG_BYTE;
+    start_byte = BEG_BYTE;
+  else if (NILP (absolute))
+    pos_byte = clip_to_bounds (BEGV_BYTE, pos_byte, ZV_BYTE);
 
-  /* Check that POSITION is in the accessible range of the buffer, or,
-     if we're reporting absolute positions, in the buffer. */
-  if (NILP (absolute) && (pos < BEGV || pos > ZV))
-    args_out_of_range_3 (make_int (pos), make_int (BEGV), make_int (ZV));
-  else if (!NILP (absolute) && (pos < 1 || pos > Z))
-    args_out_of_range_3 (make_int (pos), make_int (1), make_int (Z));
+  /* Check that POSITION is valid. */
+  if (pos_byte < BEG_BYTE || pos_byte > Z_BYTE)
+    args_out_of_range_3 (make_int (BYTE_TO_CHAR (pos_byte)),
+			 make_int (BEG), make_int (Z));
 
-  return make_int (count_lines (start, CHAR_TO_BYTE (pos)) + 1);
+  return make_int (count_lines (start_byte, pos_byte) + 1);
 }
 
 
