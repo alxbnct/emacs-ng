@@ -1960,8 +1960,8 @@ end-position of a drag event, this position list may represent a
 location outside the boundaries of the initially selected frame, in
 which case the list contains that frame in place of a window.
 
-The special form @code{track-mouse} enables generation of motion
-events within its body.  Outside of @code{track-mouse} forms, Emacs
+The @code{track-mouse} macro enables generation of motion
+events within its body.  Outside of @code{track-mouse} body, Emacs
 does not generate events for mere motion of the mouse, and these
 events do not appear.  @xref{Mouse Tracking}.
 
@@ -2395,6 +2395,17 @@ as @code{set-language-environment}), use the
 ;; Get the full localized name of the language
 (w32-get-locale-info language-id t)
 @end smallexample
+
+@cindex @code{end-session} event
+@item end-session
+This event is generated on MS-Windows when the operating system
+informs Emacs that the user terminated the interactive session, or
+that the system is shutting down.  The standard definition of this
+event is to invoke the @code{kill-emacs} command (@pxref{Killing
+Emacs}) so as to shut down Emacs in an orderly fashion; if there are
+unsaved changes, this will produce auto-save files
+(@pxref{Auto-Saving}) that the user can use after restarting the
+session to restore the unsaved edits.
 @end table
 
   If one of these events arrives in the middle of a key sequence---that
@@ -2443,7 +2454,7 @@ into another window.  That produces a pair of events like these:
 
 The frame with input focus might not take up the entire screen, and
 the user might move the mouse outside the scope of the frame.  Inside
-the @code{track-mouse} special form, that produces an event like this:
+the @code{track-mouse} macro, that produces an event like this:
 
 @smallexample
 (mouse-movement (#<frame *ielm* 0x102849a30> nil (563 . 205) 532301936))
