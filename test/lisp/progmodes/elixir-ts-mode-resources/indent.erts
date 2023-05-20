@@ -1,6 +1,5 @@
 Code:
   (lambda ()
-    (setq indent-tabs-mode nil)
     (elixir-ts-mode)
     (indent-region (point-min) (point-max)))
 
@@ -78,6 +77,18 @@ def foo() do
     }
   }
 end
+=-=-=
+
+Name: Bitstring mulitline
+
+=-=
+<<12, 22,
+22, 32
+    >>
+=-=
+<<12, 22,
+  22, 32
+>>
 =-=-=
 
 Name: Block assignments
@@ -182,7 +193,19 @@ tuple = {
 }
 =-=-=
 
-Name: Spec and method
+Name: Call with keywords
+
+=-=
+def foo() do
+  bar(:one,
+      :two,
+      one: 1,
+      two: 2
+  )
+end
+=-=-=
+
+Name: Call with @spec
 
 =-=
 @spec foobar(
@@ -329,4 +352,23 @@ defmodule Foo do
     """
   end
 end
+=-=-=
+
+Code:
+  (lambda ()
+    (elixir-ts-mode)
+    (newline)
+    (indent-for-tab-command))
+
+Name: New list item
+
+=-=
+[
+  :foo,$
+]
+=-=
+[
+  :foo,
+  $
+]
 =-=-=

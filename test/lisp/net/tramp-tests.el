@@ -73,6 +73,7 @@
 (defvar tramp-persistency-file-name)
 (defvar tramp-remote-path)
 (defvar tramp-remote-process-environment)
+(defvar tramp-use-connection-share)
 
 ;; Needed for Emacs 27.
 (defvar lock-file-name-transforms)
@@ -296,16 +297,6 @@ is greater than 10.
 	 (progn ,@body)
        (tramp--test-message
 	"%s %f sec" ,message (float-time (time-subtract nil start))))))
-
-;; `always' is introduced with Emacs 28.1.
-(defalias 'tramp--test-always
-  (if (fboundp 'always)
-      #'always
-    (lambda (&rest _arguments)
-      "Do nothing and return t.
-This function accepts any number of ARGUMENTS, but ignores them.
-Also see `ignore'."
-      t)))
 
 (ert-deftest tramp-test00-availability ()
   "Test availability of Tramp functions."
@@ -2412,24 +2403,57 @@ This checks also `file-name-as-directory', `file-name-directory',
 	  (with-temp-buffer
 	    (write-region "foo" nil tmp-name)
 	    (let ((point (point)))
-	      (insert-file-contents tmp-name)
+	      (should
+	       (equal
+		(insert-file-contents tmp-name)
+		`(,(expand-file-name tmp-name) 3)))
 	      (should (string-equal (buffer-string) "foo"))
 	      (should (= point (point))))
 	    (goto-char (1+ (point)))
 	    (let ((point (point)))
-	      (insert-file-contents tmp-name)
+	      (should
+	       (equal
+		(insert-file-contents tmp-name)
+		`(,(expand-file-name tmp-name) 3)))
 	      (should (string-equal (buffer-string) "ffoooo"))
 	      (should (= point (point))))
 	    ;; Insert partly.
 	    (let ((point (point)))
-	      (insert-file-contents tmp-name nil 1 3)
+	      (should
+	       (equal
+		(insert-file-contents tmp-name nil 1 3)
+		`(,(expand-file-name tmp-name) 2)))
 	      (should (string-equal (buffer-string) "foofoooo"))
+	      (should (= point (point))))
+	    (let ((point (point)))
+	      (should
+	       (equal
+		(insert-file-contents tmp-name nil 2 5)
+		`(,(expand-file-name tmp-name) 1)))
+	      (should (string-equal (buffer-string) "fooofoooo"))
 	      (should (= point (point))))
 	    ;; Replace.
 	    (let ((point (point)))
-	      (insert-file-contents tmp-name nil nil nil 'replace)
+	      ;; 0 characters replaced, because "foo" is already there.
+	      (should
+	       (equal
+		(insert-file-contents tmp-name nil nil nil 'replace)
+		`(,(expand-file-name tmp-name) 0)))
 	      (should (string-equal (buffer-string) "foo"))
 	      (should (= point (point))))
+	    ;; Insert another string.
+	    ;; `replace-string-in-region' was introduced in Emacs 28.1.
+	    (when (tramp--test-emacs28-p)
+	      (let ((point (point)))
+		(with-no-warnings
+		  (replace-string-in-region "foo" "bar" (point-min) (point-max)))
+		(goto-char point)
+		(should
+		 (equal
+		  (insert-file-contents tmp-name nil nil nil 'replace)
+		  `(,(expand-file-name tmp-name) 3)))
+		(should (string-equal (buffer-string) "foo"))
+		(should (= point (point)))))
 	    ;; Error case.
 	    (delete-file tmp-name)
 	    (should-error
@@ -2534,9 +2558,9 @@ This checks also `file-name-as-directory', `file-name-directory',
 	    ;; `tramp-test39-make-lock-file-name'.
 
 	    ;; Do not overwrite if excluded.
-	    (cl-letf (((symbol-function #'y-or-n-p) #'tramp--test-always)
+	    (cl-letf (((symbol-function #'y-or-n-p) #'tramp-compat-always)
 		      ;; Ange-FTP.
-		      ((symbol-function 'yes-or-no-p) #'tramp--test-always))
+		      ((symbol-function 'yes-or-no-p) #'tramp-compat-always))
 	      (write-region "foo" nil tmp-name nil nil nil 'mustbenew))
 	    (should-error
 	     (cl-letf (((symbol-function #'y-or-n-p) #'ignore)
@@ -3962,7 +3986,7 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 		(should-error
 		 (make-symbolic-link tmp-name1 tmp-name2 0)
 		 :type 'file-already-exists)))
-	    (cl-letf (((symbol-function #'yes-or-no-p) #'tramp--test-always))
+	    (cl-letf (((symbol-function #'yes-or-no-p) #'tramp-compat-always))
 	      (make-symbolic-link tmp-name1 tmp-name2 0)
 	      (should
 	       (string-equal
@@ -4042,7 +4066,7 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 	       (should-error
 		(add-name-to-file tmp-name1 tmp-name2 0)
 		:type 'file-already-exists))
-	     (cl-letf (((symbol-function #'yes-or-no-p) #'tramp--test-always))
+	     (cl-letf (((symbol-function #'yes-or-no-p) #'tramp-compat-always))
 	       (add-name-to-file tmp-name1 tmp-name2 0)
 	       (should (file-regular-p tmp-name2)))
 	     (add-name-to-file tmp-name1 tmp-name2 'ok-if-already-exists)
@@ -5173,7 +5197,7 @@ If UNSTABLE is non-nil, the test is tagged as `:unstable'."
        ;; `file-truename' does it by side-effect.  Suppress
        ;; `tramp--test-enabled', in order to keep the connection.
        ;; Suppress "Process ... finished" messages.
-       (cl-letf (((symbol-function #'tramp--test-enabled) #'tramp--test-always)
+       (cl-letf (((symbol-function #'tramp--test-enabled) #'tramp-compat-always)
 		 ((symbol-function #'internal-default-process-sentinel)
 		  #'ignore))
 	 (file-truename ert-remote-temporary-file-directory)
@@ -6381,7 +6405,7 @@ INPUT, if non-nil, is a string sent to the process."
 		  (tramp-cleanup-connection
 		   tramp-test-vec 'keep-debug 'keep-password)
 		  (cl-letf (((symbol-function #'yes-or-no-p)
-			     #'tramp--test-always))
+			     #'tramp-compat-always))
 		    (should (stringp (make-auto-save-file-name))))))))
 
 	;; Cleanup.
@@ -6414,7 +6438,10 @@ INPUT, if non-nil, is a string sent to the process."
 		(if quoted #'file-name-quote #'identity)
 		(expand-file-name
 		 (format "%s~" (file-name-nondirectory tmp-name1))
-		 ert-remote-temporary-file-directory)))))))
+		 ert-remote-temporary-file-directory))))))
+
+	;; Cleanup.  Nothing to do yet.
+	nil)
 
       (unwind-protect
 	  ;; Map `backup-directory-alist'.
@@ -6524,8 +6551,7 @@ INPUT, if non-nil, is a string sent to the process."
 		 :type 'file-error))
 	      (tramp-cleanup-connection
 	       tramp-test-vec 'keep-debug 'keep-password)
-	      (cl-letf (((symbol-function #'yes-or-no-p)
-			 #'tramp--test-always))
+	      (cl-letf (((symbol-function #'yes-or-no-p) #'tramp-compat-always))
 		(should (stringp (car (find-backup-file-name tmp-name1)))))))
 
 	;; Cleanup.
@@ -6680,8 +6706,7 @@ INPUT, if non-nil, is a string sent to the process."
 		 :type 'file-error))
 	      (tramp-cleanup-connection
 	       tramp-test-vec 'keep-debug 'keep-password)
-	      (cl-letf (((symbol-function #'yes-or-no-p)
-			 #'tramp--test-always))
+	      (cl-letf (((symbol-function #'yes-or-no-p) #'tramp-compat-always))
 		(write-region "foo" nil tmp-name1))))
 
 	;; Cleanup.
@@ -6751,7 +6776,8 @@ INPUT, if non-nil, is a string sent to the process."
 			(should (file-locked-p tmp-name)))))
 
 		  ;; `save-buffer' removes the file lock.
-		  (cl-letf (((symbol-function 'yes-or-no-p) #'tramp--test-always)
+		  (cl-letf (((symbol-function 'yes-or-no-p)
+			     #'tramp-compat-always)
 			    ((symbol-function 'read-char-choice)
 			     (lambda (&rest _) ?y)))
 		    (should (buffer-modified-p))
@@ -6907,6 +6933,13 @@ This does not support external Emacs calls."
 (defun tramp--test-out-of-band-p ()
   "Check, whether an out-of-band method is used."
   (tramp-method-out-of-band-p tramp-test-vec 1))
+
+(defun tramp--test-putty-p ()
+  "Check, whether the method method usaes PuTTY.
+This does not support connection share for more than two connections."
+  (member
+   (file-remote-p ert-remote-temporary-file-directory 'method)
+   '("plink" "plinkx" "pscp" "psftp")))
 
 (defun tramp--test-rclone-p ()
   "Check, whether the remote host is offered by rclone.
@@ -7346,16 +7379,20 @@ This requires restrictions of file name syntax."
     (dotimes (i (length fsi))
       (should (natnump (or (nth i fsi) 0))))))
 
-;; `file-user-uid' was introduced in Emacs 30.1.
-(ert-deftest tramp-test44-file-user-uid ()
-  "Check that `file-user-uid' and `tramp-get-remote-*' return proper values."
+;; `file-user-uid' and `file-group-gid' were introduced in Emacs 30.1.
+(ert-deftest tramp-test44-file-user-group-ids ()
+  "Check results of user/group functions.
+`file-user-uid', `file-group-gid', and `tramp-get-remote-*'
+should all return proper values."
   (skip-unless (tramp--test-enabled))
 
   (let ((default-directory ert-remote-temporary-file-directory))
-    ;; `file-user-uid' exists since Emacs 30.1.  We don't want to see
-    ;; compiler warnings for older Emacsen.
+    ;; `file-user-uid' and `file-group-gid' exist since Emacs 30.1.
+    ;; We don't want to see compiler warnings for older Emacsen.
     (when (fboundp 'file-user-uid)
       (should (integerp (with-no-warnings (file-user-uid)))))
+    (when (fboundp 'file-group-gid)
+      (should (integerp (with-no-warnings (file-group-gid)))))
 
     (with-parsed-tramp-file-name default-directory nil
       (should (or (integerp (tramp-get-remote-uid v 'integer))
@@ -7419,12 +7456,7 @@ This is needed in timer functions as well as process filters and sentinels."
   "Check parallel asynchronous requests.
 Such requests could arrive from timers, process filters and
 process sentinels.  They shall not disturb each other."
-  ;; :tags (append '(:expensive-test :tramp-asynchronous-processes)
-  ;;       	(and (or (getenv "EMACS_HYDRA_CI")
-  ;;                        (getenv "EMACS_EMBA_CI"))
-  ;;                    '(:unstable)))
-  ;; It doesn't work sufficiently.
-  :tags '(:expensive-test :tramp-asynchronous-processes :unstable)
+  :tags '(:expensive-test :tramp-asynchronous-processes)
   (skip-unless (tramp--test-enabled))
   (skip-unless (tramp--test-supports-processes-p))
   (skip-unless (not (tramp--test-container-p)))
@@ -7462,6 +7494,10 @@ process sentinels.  They shall not disturb each other."
                (string-to-number (getenv "REMOTE_PARALLEL_PROCESSES"))))
 	     ((getenv "EMACS_HYDRA_CI") 5)
              (t 10)))
+	   ;; PuTTY-based methods can only share up to 10 connections.
+	   (tramp-use-connection-share
+	    (if (and (tramp--test-putty-p) (>= number-proc 10))
+		'suppress (bound-and-true-p tramp-use-connection-share)))
            ;; On hydra, timings are bad.
            (timer-repeat
             (cond
@@ -7492,14 +7528,12 @@ process sentinels.  They shall not disturb each other."
                   (when buffers
                     (let ((time (float-time))
                           (default-directory tmp-name)
-                          (file (buffer-name (seq-random-elt buffers)))
-			  ;; A remote operation in a timer could
-			  ;; confuse Tramp heavily.  So we ignore this
-			  ;; error here.
-			  (debug-ignored-errors
-			   (cons 'remote-file-error debug-ignored-errors)))
+                          (file (buffer-name (seq-random-elt buffers))))
                       (tramp--test-message
                        "Start timer %s %s" file (current-time-string))
+		      (dired-uncache file)
+		      (tramp--test-message
+		       "Continue timer %s %s" file (file-attributes file))
 		      (vc-registered file)
                       (tramp--test-message
                        "Stop timer %s %s" file (current-time-string))

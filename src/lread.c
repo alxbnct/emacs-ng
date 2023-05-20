@@ -2255,6 +2255,7 @@ readevalloop (Lisp_Object readcharfun,
 	  record_unwind_protect_excursion ();
 	  /* Save ZV in it.  */
 	  record_unwind_protect (save_restriction_restore, save_restriction_save ());
+	  labeled_restrictions_remove_in_current_buffer ();
 	  /* Those get unbound after we read one expression.  */
 
 	  /* Set point and ZV around stuff to be read.  */
@@ -2639,12 +2640,6 @@ character_name_to_code (char const *name, ptrdiff_t name_len,
    Unicode 9.0.0 the maximum is 83, so this should be safe.  */
 enum { UNICODE_CHARACTER_NAME_LENGTH_BOUND = 200 };
 
-static AVOID
-invalid_escape_syntax_error (void)
-{
-  error ("Invalid escape character syntax");
-}
-
 /* Read a character escape sequence, assuming we just read a backslash
    and one more character (next_char).  */
 static int
@@ -2676,7 +2671,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 
     case '\n':
       /* ?\LF is an error; it's probably a user mistake.  */
-      error ("Invalid escape character syntax");
+      error ("Invalid escape char syntax: \\<newline>");
 
     /* \M-x etc: set modifier bit and parse the char to which it applies,
        allowing for chains such as \M-\S-\A-\H-\s-\C-q.  */
@@ -2700,7 +2695,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 	      }
 	    else
 	      /* \M, \S, \H, \A not followed by a hyphen is an error.  */
-	      invalid_escape_syntax_error ();
+	      error ("Invalid escape char syntax: \\%c not followed by -", c);
 	  }
 	modifiers |= mod;
 	c1 = READCHAR;
@@ -2720,7 +2715,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
       {
 	int c1 = READCHAR;
 	if (c1 != '-')
-	  invalid_escape_syntax_error ();
+	  error ("Invalid escape char syntax: \\%c not followed by -", c);
       }
       FALLTHROUGH;
     /* The prefixes \C- and \^ are equivalent.  */
@@ -2785,7 +2780,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 	  }
 
 	if (count == 0)
-	  invalid_escape_syntax_error ();
+	  error ("Invalid escape char syntax: \\x not followed by hex digit");
 	if (count < 3 && i >= 0x80)
 	  i = BYTE8_TO_CHAR (i);
 	modifiers |= i & CHAR_MODIFIER_MASK;
@@ -3382,8 +3377,8 @@ read_bool_vector (Lisp_Object readcharfun)
 	    invalid_syntax ("#&", readcharfun);
 	  break;
 	}
-      if (INT_MULTIPLY_WRAPV (length, 10, &length)
-	  || INT_ADD_WRAPV (length, c - '0', &length))
+      if (ckd_mul (&length, length, 10)
+	  || ckd_add (&length, length, c - '0'))
 	invalid_syntax ("#&", readcharfun);
     }
 
@@ -3428,8 +3423,8 @@ skip_lazy_string (Lisp_Object readcharfun)
 	    UNREAD (c);
 	  break;
 	}
-      if (INT_MULTIPLY_WRAPV (nskip, 10, &nskip)
-	  || INT_ADD_WRAPV (nskip, c - '0', &nskip))
+      if (ckd_mul (&nskip, nskip, 10)
+	  || ckd_add (&nskip, nskip, c - '0'))
 	invalid_syntax ("#@", readcharfun);
       digits++;
       if (digits == 2 && nskip == 0)
@@ -3993,8 +3988,8 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 		    c = READCHAR;
 		    if (c < '0' || c > '9')
 		      break;
-		    if (INT_MULTIPLY_WRAPV (n, 10, &n)
-			|| INT_ADD_WRAPV (n, c - '0', &n))
+		    if (ckd_mul (&n, n, 10)
+			|| ckd_add (&n, n, c - '0'))
 		      invalid_syntax ("#", readcharfun);
 		  }
 		if (c == 'r' || c == 'R')

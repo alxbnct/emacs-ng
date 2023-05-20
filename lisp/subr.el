@@ -45,7 +45,8 @@ declaration.  A FILE with an \"ext:\" prefix is an external file.
 `check-declare' will check such files if they are found, and skip
 them without error if they are not.
 
-Optional ARGLIST specifies FN's arguments, or is t to not specify
+Optional ARGLIST specifies FN's arguments, in the same form as
+in `defun' (including the parentheses); or it is t to not specify
 FN's arguments.  An omitted ARGLIST defaults to t, not nil: a nil
 ARGLIST specifies an empty argument list, and an explicit t
 ARGLIST is a placeholder that allows supplying a later arg.
@@ -823,26 +824,26 @@ of course, also replace TO with a slightly larger value
                 next (+ from (* n inc)))))
       (nreverse seq))))
 
-(defun copy-tree (tree &optional vecp)
+(defun copy-tree (tree &optional vector-like-p)
   "Make a copy of TREE.
 If TREE is a cons cell, this recursively copies both its car and its cdr.
 Contrast to `copy-sequence', which copies only along the cdrs.  With second
-argument VECP, this copies vectors as well as conses."
-  (declare (side-effect-free t))
+argument VECTOR-LIKE-P, this copies vectors and records as well as conses."
+  (declare (side-effect-free error-free))
   (if (consp tree)
       (let (result)
 	(while (consp tree)
 	  (let ((newcar (car tree)))
-	    (if (or (consp (car tree)) (and vecp (vectorp (car tree))))
-		(setq newcar (copy-tree (car tree) vecp)))
+	    (if (or (consp (car tree)) (and vector-like-p (or (vectorp (car tree)) (recordp (car tree)))))
+		(setq newcar (copy-tree (car tree) vector-like-p)))
 	    (push newcar result))
 	  (setq tree (cdr tree)))
 	(nconc (nreverse result)
-               (if (and vecp (vectorp tree)) (copy-tree tree vecp) tree)))
-    (if (and vecp (vectorp tree))
+               (if (and vector-like-p (or (vectorp tree) (recordp tree))) (copy-tree tree vector-like-p) tree)))
+    (if (and vector-like-p (or (vectorp tree) (recordp tree)))
 	(let ((i (length (setq tree (copy-sequence tree)))))
 	  (while (>= (setq i (1- i)) 0)
-	    (aset tree i (copy-tree (aref tree i) vecp)))
+	    (aset tree i (copy-tree (aref tree i) vector-like-p)))
 	  tree)
       tree)))
 
@@ -861,6 +862,7 @@ If that is non-nil, the element matches; then `assoc-default'
 
 If no element matches, the value is nil.
 If TEST is omitted or nil, `equal' is used."
+  (declare (important-return-value t))
   (let (found (tail alist) value)
     (while (and tail (not found))
       (let ((elt (car tail)))
@@ -1554,31 +1556,32 @@ EVENT may be an event or an event type.  If EVENT is a symbol
 that has never been used in an event that has been read as input
 in the current Emacs session, then this function may fail to include
 the `click' modifier."
-  (let ((type event))
-    (if (listp type)
-	(setq type (car type)))
-    (if (symbolp type)
-        ;; Don't read event-symbol-elements directly since we're not
-        ;; sure the symbol has already been parsed.
-	(cdr (internal-event-symbol-parse-modifiers type))
-      (let ((list nil)
-	    (char (logand type (lognot (logior ?\M-\0 ?\C-\0 ?\S-\0
-					       ?\H-\0 ?\s-\0 ?\A-\0)))))
-	(if (not (zerop (logand type ?\M-\0)))
-	    (push 'meta list))
-	(if (or (not (zerop (logand type ?\C-\0)))
-		(< char 32))
-	    (push 'control list))
-	(if (or (not (zerop (logand type ?\S-\0)))
-		(/= char (downcase char)))
-	    (push 'shift list))
-	(or (zerop (logand type ?\H-\0))
-	    (push 'hyper list))
-	(or (zerop (logand type ?\s-\0))
-	    (push 'super list))
-	(or (zerop (logand type ?\A-\0))
-	    (push 'alt list))
-	list))))
+  (unless (stringp event)
+    (let ((type event))
+      (if (listp type)
+	  (setq type (car type)))
+      (if (symbolp type)
+          ;; Don't read event-symbol-elements directly since we're not
+          ;; sure the symbol has already been parsed.
+	  (cdr (internal-event-symbol-parse-modifiers type))
+        (let ((list nil)
+	      (char (logand type (lognot (logior ?\M-\0 ?\C-\0 ?\S-\0
+					         ?\H-\0 ?\s-\0 ?\A-\0)))))
+	  (if (not (zerop (logand type ?\M-\0)))
+	      (push 'meta list))
+	  (if (or (not (zerop (logand type ?\C-\0)))
+		  (< char 32))
+	      (push 'control list))
+	  (if (or (not (zerop (logand type ?\S-\0)))
+		  (/= char (downcase char)))
+	      (push 'shift list))
+	  (or (zerop (logand type ?\H-\0))
+	      (push 'hyper list))
+	  (or (zerop (logand type ?\s-\0))
+	      (push 'super list))
+	  (or (zerop (logand type ?\A-\0))
+	      (push 'alt list))
+	  list)))))
 
 (defun event-basic-type (event)
   "Return the basic type of the given event (all modifiers removed).
@@ -1586,17 +1589,18 @@ The value is a printing character (not upper case) or a symbol.
 EVENT may be an event or an event type.  If EVENT is a symbol
 that has never been used in an event that has been read as input
 in the current Emacs session, then this function may return nil."
-  (if (consp event)
-      (setq event (car event)))
-  (if (symbolp event)
-      (car (get event 'event-symbol-elements))
-    (let* ((base (logand event (1- ?\A-\0)))
-	   (uncontrolled (if (< base 32) (logior base 64) base)))
-      ;; There are some numbers that are invalid characters and
-      ;; cause `downcase' to get an error.
-      (condition-case ()
-	  (downcase uncontrolled)
-	(error uncontrolled)))))
+  (unless (stringp event)
+    (if (consp event)
+        (setq event (car event)))
+    (if (symbolp event)
+        (car (get event 'event-symbol-elements))
+      (let* ((base (logand event (1- ?\A-\0)))
+	     (uncontrolled (if (< base 32) (logior base 64) base)))
+        ;; There are some numbers that are invalid characters and
+        ;; cause `downcase' to get an error.
+        (condition-case ()
+	    (downcase uncontrolled)
+	  (error uncontrolled))))))
 
 (defsubst mouse-movement-p (object)
   "Return non-nil if OBJECT is a mouse movement event."
@@ -1881,8 +1885,8 @@ be a list of the form returned by `event-start' and `event-end'."
 (set-advertised-calling-convention 'unintern '(name obarray) "23.3")
 (set-advertised-calling-convention 'indirect-function '(object) "25.1")
 (set-advertised-calling-convention 'redirect-frame-focus '(frame focus-frame) "24.3")
-(set-advertised-calling-convention 'libxml-parse-xml-region '(start end &optional base-url) "27.1")
-(set-advertised-calling-convention 'libxml-parse-html-region '(start end &optional base-url) "27.1")
+(set-advertised-calling-convention 'libxml-parse-xml-region '(&optional start end base-url) "27.1")
+(set-advertised-calling-convention 'libxml-parse-html-region '(&optional start end base-url) "27.1")
 (set-advertised-calling-convention 'time-convert '(time form) "29.1")
 
 ;;;; Obsolescence declarations for variables, and aliases.
@@ -3575,9 +3579,9 @@ confusing to some users.")
 (defvar from--tty-menu-p nil
   "Non-nil means the current command was invoked from a TTY menu.")
 (defun use-dialog-box-p ()
-  "Say whether the current command should prompt the user via a dialog box."
+  "Return non-nil if the current command should prompt the user via a dialog box."
   (and last-input-event                 ; not during startup
-       (or (listp last-nonmenu-event)   ; invoked by a mouse event
+       (or (consp last-nonmenu-event)   ; invoked by a mouse event
            from--tty-menu-p)            ; invoked via TTY menu
        use-dialog-box))
 
@@ -3586,7 +3590,9 @@ confusing to some users.")
 Return t if answer is \"y\" and nil if it is \"n\".
 
 PROMPT is the string to display to ask the question; `y-or-n-p'
-adds \"(y or n) \" to it.
+adds \"(y or n) \" to it.  If PROMPT is a non-empty string, and
+it ends with a non-space character, a space character will be
+appended to it.
 
 If you bind the variable `help-form' to a non-nil value
 while calling this function, then pressing `help-char'
@@ -4012,7 +4018,7 @@ same LABEL argument.
   "Helper function for `with-restriction', which see."
   (save-restriction
     (narrow-to-region start end)
-    (if label (internal--lock-narrowing label))
+    (if label (internal--label-restriction label))
     (funcall body)))
 
 (defmacro without-restriction (&rest rest)
@@ -4034,7 +4040,7 @@ are lifted.
 (defun internal--without-restriction (body &optional label)
   "Helper function for `without-restriction', which see."
   (save-restriction
-    (if label (internal--unlock-narrowing label))
+    (if label (internal--unlabel-restriction label))
     (widen)
     (funcall body)))
 
@@ -7170,12 +7176,13 @@ CONDITION is either:
     (funcall match (list condition))))
 
 (defun match-buffers (condition &optional buffers arg)
-  "Return a list of buffers that match CONDITION.
-See `buffer-match-p' for details on CONDITION.  By default all
-buffers are checked, this can be restricted by passing an
-optional argument BUFFERS, set to a list of buffers to check.
-ARG is passed to `buffer-match', for predicate conditions in
-CONDITION."
+  "Return a list of buffers that match CONDITION, or nil if none match.
+See `buffer-match-p' for various supported CONDITIONs.
+By default all buffers are checked, but the optional
+argument BUFFERS can restrict that: its value should be
+an explicit list of buffers to check.
+Optional argument ARG is passed to `buffer-match-p', for
+predicate conditions in CONDITION."
   (let (bufs)
     (dolist (buf (or buffers (buffer-list)))
       (when (buffer-match-p condition (get-buffer buf) arg)
