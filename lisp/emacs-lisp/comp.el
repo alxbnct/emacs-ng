@@ -1712,6 +1712,10 @@ Return value is the fall-through block name."
 
 (defun comp-jump-table-optimizable (jmp-table)
   "Return t if JMP-TABLE can be optimized out."
+  ;; Identify LAP sequences like:
+  ;; (byte-constant #s(hash-table size 3 test eq rehash-size 1.5 rehash-threshold 0.8125 purecopy t data (created 126 deleted 126 changed 126)) . 24)
+  ;; (byte-switch)
+  ;; (TAG 126 . 10)
   (cl-loop
    with labels = (cl-loop for target-label being each hash-value of jmp-table
                           collect target-label)
@@ -1719,7 +1723,10 @@ Return value is the fall-through block name."
    for l in (cdr-safe labels)
    unless (= l x)
      return nil
-   finally return t))
+   finally return (pcase (nth (1+ (comp-limplify-pc comp-pass))
+                              (comp-func-lap comp-func))
+                    (`(TAG ,label . ,_label-sp)
+                     (= label l)))))
 
 (defun comp-emit-switch (var last-insn)
   "Emit a Limple for a lap jump table given VAR and LAST-INSN."
@@ -1764,27 +1771,32 @@ Return value is the fall-through block name."
     (_ (signal 'native-ice
                '("missing previous setimm while creating a switch")))))
 
+(defun comp--func-arity (subr-name)
+  "Like `func-arity' but invariant against primitive redefinitions.
+SUBR-NAME is the name of function."
+  (or (gethash subr-name comp-subr-arities-h)
+      (func-arity subr-name)))
+
 (defun comp-emit-set-call-subr (subr-name sp-delta)
     "Emit a call for SUBR-NAME.
 SP-DELTA is the stack adjustment."
-    (let ((subr (symbol-function subr-name))
-          (nargs (1+ (- sp-delta))))
-      (let* ((arity (func-arity subr))
-             (minarg (car arity))
-             (maxarg (cdr arity)))
-        (when (eq maxarg 'unevalled)
-          (signal 'native-ice (list "subr contains unevalled args" subr-name)))
-        (if (eq maxarg 'many)
-            ;; callref case.
-            (comp-emit-set-call (comp-callref subr-name nargs (comp-sp)))
-          ;; Normal call.
-          (unless (and (>= maxarg nargs) (<= minarg nargs))
-            (signal 'native-ice
-                    (list "incoherent stack adjustment" nargs maxarg minarg)))
-          (let* ((subr-name subr-name)
-                 (slots (cl-loop for i from 0 below maxarg
-                                 collect (comp-slot-n (+ i (comp-sp))))))
-            (comp-emit-set-call (apply #'comp-call (cons subr-name slots))))))))
+    (let* ((nargs (1+ (- sp-delta)))
+           (arity (comp--func-arity subr-name))
+           (minarg (car arity))
+           (maxarg (cdr arity)))
+      (when (eq maxarg 'unevalled)
+        (signal 'native-ice (list "subr contains unevalled args" subr-name)))
+      (if (eq maxarg 'many)
+          ;; callref case.
+          (comp-emit-set-call (comp-callref subr-name nargs (comp-sp)))
+        ;; Normal call.
+        (unless (and (>= maxarg nargs) (<= minarg nargs))
+          (signal 'native-ice
+                  (list "incoherent stack adjustment" nargs maxarg minarg)))
+        (let* ((subr-name subr-name)
+               (slots (cl-loop for i from 0 below maxarg
+                               collect (comp-slot-n (+ i (comp-sp))))))
+          (comp-emit-set-call (apply #'comp-call (cons subr-name slots)))))))
 
 (eval-when-compile
   (defun comp-op-to-fun (x)
@@ -3720,6 +3732,7 @@ Prepare every function for final compilation and drive the C back-end."
                            ',native-comp-compiler-options
                            native-comp-driver-options
                            ',native-comp-driver-options
+                           byte-compile-warnings ',byte-compile-warnings
                            load-path ',load-path)
                      ,native-comp-async-env-modifier-form
                      (message "Compiling %s..." ',output)
@@ -3992,6 +4005,7 @@ display a message."
                                              native-comp-driver-options
                                              load-path
                                              backtrace-line-length
+                                             byte-compile-warnings
                                              ;; package-load-list
                                              ;; package-user-dir
                                              ;; package-directory-list
@@ -4225,8 +4239,9 @@ bytecode definition was not changed in the meantime)."
           ;; compilation, so update `comp-files-queue' to reflect that.
           (unless (or (null load)
                       (eq load (cdr entry)))
-            (cl-substitute (cons file load) (car entry) comp-files-queue
-                           :key #'car :test #'string=))
+            (setf comp-files-queue
+                  (cl-substitute (cons file load) (car entry) comp-files-queue
+                                 :key #'car :test #'string=)))
 
         (unless (native-compile-async-skip-p file load selector)
           (let* ((out-filename (comp-el-to-eln-filename file))

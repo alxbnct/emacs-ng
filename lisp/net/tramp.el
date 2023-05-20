@@ -120,7 +120,7 @@ Any level x includes messages for all levels 1 .. x-1.  The levels are
 (defcustom tramp-debug-to-file nil
   "Whether Tramp debug messages shall be saved to file.
 The debug file has the same name as the debug buffer, written to
-`temporary-file-directory'."
+`tramp-compat-temporary-file-directory'."
   :version "28.1"
   :type 'boolean)
 
@@ -665,6 +665,7 @@ The `sudo' program appears to insert a `^@' character into the prompt."
 	 "Sorry, try again."
 	 "Name or service not known"
 	 "Host key verification failed."
+	 "Authentication failed"
 	 "No supported authentication methods left to try!"
 	 (: "Login " (| "Incorrect" "incorrect"))
 	 (: "Connection " (| "refused" "closed"))
@@ -1349,6 +1350,7 @@ let-bind this variable."
 ;; IRIX64: /usr/bin
 ;; QNAP QTS: ---
 ;; Hydra: /run/current-system/sw/bin:/bin:/usr/bin
+;;;###tramp-autoload
 (defcustom tramp-remote-path
   '(tramp-default-remote-path "/bin" "/usr/bin" "/sbin" "/usr/sbin"
     "/usr/local/bin" "/usr/local/sbin" "/local/bin" "/local/freeware/bin"
@@ -1969,7 +1971,7 @@ of `current-buffer'."
       (+ digit) ":" (+ digit) ":" (+ digit) "." (+ digit) blank
       ;; Thread.
       (? (group "#<thread " (+ nonl) ">") blank)
-       ;; Function name, verbosity.
+      ;; Function name, verbosity.
       (+ (any "-" alnum)) " (" (group (+ digit)) ") #")
   "Used for highlighting Tramp debug buffers in `outline-mode'.")
 
@@ -2108,18 +2110,23 @@ ARGUMENTS to actually emit the message (if applicable)."
 	  (insert "\n"))
 	;; Timestamp.
 	(insert (format-time-string "%T.%6N "))
+	;; Threads.  `current-thread' might not exist when Emacs is
+	;; configured --without-threads.
+	;; (unless (eq (tramp-compat-funcall 'current-thread) main-thread)
+	;;   (insert (format "%s " (tramp-compat-funcall 'current-thread))))
 	;; Calling Tramp function.  We suppress compat and trace
 	;; functions from being displayed.
-	(let ((btn 1) btf fn)
+	(let ((frames (backtrace-frames))
+	      btf fn)
 	  (while (not fn)
-	    (setq btf (nth 1 (backtrace-frame btn)))
+	    (setq btf (cadadr frames))
 	    (if (not btf)
 		(setq fn "")
 	      (and (symbolp btf) (setq fn (symbol-name btf))
 		   (or (not (string-prefix-p "tramp" fn))
 		       (get btf 'tramp-suppress-trace))
 		   (setq fn nil))
-	      (setq btn (1+ btn))))
+	      (setq frames (cdr frames))))
 	  ;; The following code inserts filename and line number.
 	  ;; Should be inactive by default, because it is time consuming.
 	  ;; (let ((ffn (find-function-noselect (intern fn))))
@@ -2649,7 +2656,7 @@ Must be handled by the callers."
 	      ;; Emacs 29+ only.
               list-system-processes memory-info process-attributes
               ;; Emacs 30+ only.
-	      file-user-uid))
+	      file-group-gid file-user-uid))
     default-directory)
    ;; PROC.
    ((member operation '(file-notify-rm-watch file-notify-valid-p))
@@ -3789,14 +3796,14 @@ BODY is the backend specific code."
   ;; VISIT, for example `jka-compr-handler'.  We must respect this.
   ;; See Bug#55166.
   `(let* ((filename (expand-file-name ,filename))
-	 (lockname (file-truename (or ,lockname filename)))
-	 (handler (and (stringp ,visit)
-		       (let ((inhibit-file-name-handlers
-			      `(tramp-file-name-handler
-				tramp-crypt-file-name-handler
-				. inhibit-file-name-handlers))
-			     (inhibit-file-name-operation 'write-region))
-			 (find-file-name-handler ,visit 'write-region)))))
+	  (lockname (file-truename (or ,lockname filename)))
+	  (handler (and (stringp ,visit)
+			(let ((inhibit-file-name-handlers
+			       `(tramp-file-name-handler
+				 tramp-crypt-file-name-handler
+				 . inhibit-file-name-handlers))
+			      (inhibit-file-name-operation 'write-region))
+			  (find-file-name-handler ,visit 'write-region)))))
      (with-parsed-tramp-file-name filename nil
        (if handler
 	   (progn
@@ -3930,11 +3937,20 @@ Let-bind it when necessary.")
       (tramp-make-tramp-file-name (tramp-dissect-file-name filename)))))
 
 (defun tramp-handle-file-user-uid ()
-  "Like `user-uid' for Tramp files."
+  "Like `file-user-uid' for Tramp files."
   (let ((v (tramp-dissect-file-name default-directory)))
     (or (tramp-get-remote-uid v 'integer)
         ;; Some handlers for `tramp-get-remote-uid' return nil if they
         ;; can't get the UID; always return -1 in this case for
+        ;; consistency.
+        tramp-unknown-id-integer)))
+
+(defun tramp-handle-file-group-gid ()
+  "Like `file-group-gid' for Tramp files."
+  (let ((v (tramp-dissect-file-name default-directory)))
+    (or (tramp-get-remote-gid v 'integer)
+        ;; Some handlers for `tramp-get-remote-gid' return nil if they
+        ;; can't get the GID; always return -1 in this case for
         ;; consistency.
         tramp-unknown-id-integer)))
 
@@ -4791,10 +4807,12 @@ Do not set it manually, it is used buffer-local in `tramp-get-lock-pid'.")
           (delete-file lockname)
 	;; Trigger the unlock error.
 	(signal 'file-error `("Cannot remove lock file for" ,file)))
-    ;; `userlock--handle-unlock-error' exists since Emacs 28.1.
-    (error
-     (when create-lockfiles
-       (tramp-compat-funcall 'userlock--handle-unlock-error err)))))
+    ;; `userlock--handle-unlock-error' exists since Emacs 28.1.  It
+    ;; checks for `create-lockfiles' since Emacs 30.1, we don't need
+    ;; this check here, then.
+    (error (unless (or (not create-lockfiles)
+                       (bound-and-true-p remote-file-name-inhibit-locks))
+             (tramp-compat-funcall 'userlock--handle-unlock-error err)))))
 
 (defun tramp-handle-load (file &optional noerror nomessage nosuffix must-suffix)
   "Like `load' for Tramp files."
@@ -4938,6 +4956,16 @@ substitution.  SPEC-LIST is a list of char/value pairs used for
 	(setq x (mapcar (lambda (y) (format-spec y spec)) x))
 	(unless (member "" x) x))
       args))))
+
+(defun tramp-post-process-creation (proc vec)
+  "Apply actions after creation of process PROC."
+  (process-put proc 'tramp-vector vec)
+  (process-put proc 'adjust-window-size-function #'ignore)
+  (set-process-query-on-exit-flag proc nil)
+  (tramp-taint-remote-process-buffer (process-buffer proc))
+  (tramp-message vec 6 "%s" (string-join (process-command proc) " ")))
+
+(put #'tramp-post-process-creation 'tramp-suppress-trace t)
 
 (defun tramp-direct-async-process-p (&rest args)
   "Whether direct async `make-process' can be called."
@@ -5088,15 +5116,19 @@ substitution.  SPEC-LIST is a list of char/value pairs used for
 	    ;; t.  See Bug#51177.
 	    (when filter
 	      (set-process-filter p filter))
-	    (process-put p 'tramp-vector v)
+	    (tramp-post-process-creation p v)
+	    ;; Query flag is overwritten in `tramp-post-process-creation',
+	    ;; so we reset it.
+	    (set-process-query-on-exit-flag p (null noquery))
 	    ;; This is neded for ssh or PuTTY based processes, and
 	    ;; only if the respective options are set.  Perhaps, the
 	    ;; setting could be more fine-grained.
 	    ;; (process-put p 'tramp-shared-socket t)
 	    (process-put p 'remote-command orig-command)
 	    (tramp-set-connection-property p "remote-command" orig-command)
+	    (when (bufferp stderr)
+	      (tramp-taint-remote-process-buffer stderr))
 
-	    (tramp-message v 6 "%s" (string-join (process-command p) " "))
 	    p))))))
 
 (defun tramp-handle-make-symbolic-link
@@ -5110,7 +5142,7 @@ support symbolic links."
 
 (defun tramp-handle-memory-info ()
   "Like `memory-info' for Tramp files."
-  (let ((result '(0 0 0 0))
+  (let ((result (list 0 0 0 0))
         process-file-side-effects)
     (with-temp-buffer
       (cond
@@ -5795,11 +5827,14 @@ Mostly useful to protect BODY from being interrupted by timers."
 	   (throw 'non-essential 'non-essential)
 	 (tramp-error
 	  ,proc 'remote-file-error "Forbidden reentrant call of Tramp"))
-     (unwind-protect
-	 (progn
-	   (tramp-set-connection-property ,proc "locked" t)
-	   ,@body)
-       (tramp-flush-connection-property ,proc "locked"))))
+     (let ((stimers (with-timeout-suspend))
+	   timer-list timer-idle-list)
+       (unwind-protect
+	   (progn
+	     (tramp-set-connection-property ,proc "locked" t)
+	     ,@body)
+	 (tramp-flush-connection-property ,proc "locked")
+	 (with-timeout-unsuspend stimers)))))
 
 (defun tramp-accept-process-output (proc &optional _timeout)
   "Like `accept-process-output' for Tramp processes.
@@ -6373,7 +6408,7 @@ ID-FORMAT valid values are `string' and `integer'."
 
 (defun tramp-read-id-output (vec)
   "Read in connection buffer the output of the `id' command.
-Set connection properties \"{uid,gid.groups}-{integer,string}\"."
+Set connection properties \"{uid,gid,groups}-{integer,string}\"."
   (with-current-buffer (tramp-get-connection-buffer vec)
     (let (uid-integer uid-string
 	  gid-integer gid-string
