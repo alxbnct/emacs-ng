@@ -30,6 +30,11 @@ applies, and please also update docstrings as needed.
 
 * Changes in Emacs 30.1
 
+---
+** New user option 'describe-bindings-outline-rules'.
+This user option controls outline visibility in the output buffer of
+'describe-bindings' when 'describe-bindings-outline' in non-nil.
+
 ** X selection requests are now handled much faster and asynchronously.
 This means it should be less necessary to disable the likes of
 'select-active-regions' when Emacs is running over a slow network
@@ -66,6 +71,11 @@ This allows the user to customize the prompt that is appended by
 This is used for displaying the time and date components of
 'display-time-mode'.
 
+---
+** New icon images for general use.
+Several symbolic icons are added to "etc/images/symbols", including
+plus, minus, check-mark, start, etc.
+
 
 * Editing Changes in Emacs 30.1
 
@@ -100,7 +110,7 @@ If you want to get back the old behavior, set the user option to the value
     (setopt gdb-locals-table-row-config
             `((type . 0) (name . 0) (value . ,gdb-locals-value-limit)))
 
-** Compile
+** Grep
 
 *** New user option 'grep-use-headings'.
 When non-nil, the output of Grep is split into sections, one for each
@@ -174,11 +184,16 @@ correctly unloads Eshell and all of its modules.
 After manually editing 'eshell-aliases-file', you can use this command
 to load the edited aliases.
 
++++
+*** 'rgrep' is now a builtin command.
+Running 'rgrep' in Eshell now uses the Emacs grep facility instead of
+calling external rgrep.
+
 ** Shell Mode
 
 +++
 *** New user option 'shell-get-old-input-include-continuation-lines'.
-When this user option is non-nil, 'shell-get-old-input' (C-RET)
+When this user option is non-nil, 'shell-get-old-input' ('C-RET')
 includes multiple shell "\" continuation lines from command output.
 Default is nil.
 
@@ -194,16 +209,23 @@ point is not in a comment or a string.  It is by default bound to
 ** Tramp
 
 +++
-*** New connection method "toolbox".
-This allows accessing system containers provided by Toolbox.
+*** New connection methods "toolbox" and "flatpak".
+They allow accessing system containers provided by Toolbox or
+sandboxes provided by Flatpak.
 
 +++
-*** Rename 'tramp-use-ssh-controlmaster-options' to 'tramp-use-connection-share.
-The old name still exists as defvaralias.  This user option controls
-now connection sharing for both ssh-based and plink-based methods.  It
-allows the values t, nil, and 'suppress'.  The latter suppresses
-also "ControlMaster" settings in the user's "~/.ssh/config" file,
-or connection share configuration in PuTTY sessions, respectively.
+*** Rename 'tramp-use-ssh-controlmaster-options' to 'tramp-use-connection-share'.
+The old name still exists as obsolete variable alias.  This user
+option controls now connection sharing for both ssh-based and
+plink-based methods.  It allows the values t, nil, and 'suppress'.
+The latter suppresses also "ControlMaster" settings in the user's
+"~/.ssh/config" file, or connection share configuration in PuTTY
+sessions, respectively.
+
++++
+*** New command 'tramp-cleanup-some-buffers'.
+It allows to kill only selected remote buffers, controlled by user
+option 'tramp-cleanup-some-buffers-hook'.
 
 ** EWW
 
@@ -213,6 +235,17 @@ By default, the command reuses the "*eww*" buffer, but if called with
 the new argument NEW-BUFFER non-nil, it will use a new buffer instead.
 Interactively, invoke 'eww-open-file' with a prefix argument to
 activate this behavior.
+
+---
+*** 'eww' URL or keyword prompt now has tab completion.
+The interactive minibuffer prompt when invoking 'eww' now has support
+for tab completion.
+
++++
+*** 'eww' URL and keyword prompt now completes suggested URIs and bookmarks.
+The interactive minibuffer prompt when invoking 'eww' now provides
+completions from 'eww-suggest-uris'.  'eww-suggest-uris' now includes
+bookmark URIs.
 
 ** go-ts-mode
 
@@ -260,6 +293,99 @@ following to your init file:
 When non-nil, it will automatically register every package as a
 project, that you can quickly select using 'project-switch-project'
 ('C-x p p').
+
+---
+*** New user option 'package-vc-allow-side-effects'.
+When non-nil, package specifications with side-effects for building
+software will used when building a package.
+
+** Flymake
+
++++
+*** New user option 'flymake-show-diagnostics-at-end-of-line'.
+When non-nil, Flymake shows summarized descriptions of diagnostics at
+the end of the line.  Depending on your preference, this can either be
+distracting and easily confused with actual code, or a significant
+early aid that relieves you from moving the buffer or reaching for the
+mouse to consult an error message.
+
+** Python Mode
+
+---
+*** New user option 'python-indent-block-paren-deeper'.
+If non-nil, increase the indentation of the lines inside parens in a
+header of a block when they are indented to the same level as the body
+of the block:
+
+    if (some_expression
+            and another_expression):
+        do_something()
+
+instead of:
+
+    if (some_expression
+        and another_expression):
+        do_something()
+
+** use-package
+
++++
+*** New ':vc' keyword.
+This keyword enables the user to install packages using 'package-vc'.
+
+** Rmail
+
+---
+*** New commands for reading mailing lists.
+The new Rmail commands 'rmail-mailing-list-post',
+'rmail-mailing-list-unsubscribe', 'rmail-mailing-list-help', and
+'rmail-mailing-list-archive allow to, respectively, post to,
+unsubscribe from, request help about, and browse the archives, of the
+mailing list from which the current email message was delivered.
+
+** Dictionary
+
+---
+*** New user option 'dictionary-search-interface'.
+Controls how the 'dictionary-search' command prompts for and displays
+dictionary definitions.  Customize this user option to 'help' to have
+'dictionary-search' display definitions in a *Help* buffer and provide
+dictionary-based minibuffer completion for word selection.
+
+---
+*** New user option 'dictionary-read-word-prompt'.
+This allows the user to customize the prompt that is used by
+'dictionary-search' when asking for a word to search in the
+dictionary.
+
+---
+*** New user option 'dictionary-display-definition-function'.
+This allows the user to customize the way in which 'dictionary-search'
+displays word definitions.  If non-nil, this user option should be set
+to a function that displays a word definition obtained from a
+dictionary server.  The new function
+'dictionary-display-definition-in-help-buffer' can be used to display
+the definition in a *Help* buffer, instead of the default *Dictionary*
+buffer.
+
+---
+*** New user option 'dictionary-read-word-function'.
+This allows the user to customize the way in which 'dictionary-search'
+prompts for a word to search in the dictionary.  This user option
+should be set to a function that lets the user select a word and
+returns it as a string.  The new function
+'dictionary-completing-read-word' can be used to prompt with
+completion based on dictionary matches.
+
+---
+*** New user option 'dictionary-read-dictionary-function'.
+This allows the user to customize the way in which 'dictionary-search'
+prompts for a dictionary to search in.  This user option should be set
+to a function that lets the user select a dictionary and returns its
+name as a string.  The new function
+'dictionary-completing-read-dictionary' can be used to prompt with
+completion based on dictionaries that the server supports.
+
 
 
 * New Modes and Packages in Emacs 30.1
@@ -316,8 +442,18 @@ These hooks were named incorrectly, and so they never actually ran
 when unloading the correspending feature.  Instead, you should use
 hooks named after the feature name, like 'esh-mode-unload-hook'.
 
++++
+** 'copy-tree' now copies records when its optional 2nd argument is non-nil.
+
 
 * Lisp Changes in Emacs 30.1
+
++++
+** New variable 'safe-local-variable-directories'.
+This variable names directories in which Emacs will treat all
+directory-local variables as safe.
+
+** New variable 'inhibit-auto-fill' to temporarily prevent auto-fill.
 
 ** Functions and variables to transpose sexps
 
@@ -433,7 +569,7 @@ any unwind forms, as in
 
     (unwind-protect (read buffer))
 
-because the behaviour is identical to that of the argument; there is
+because the behavior is identical to that of the argument; there is
 no protection of any kind.  Perhaps the intended unwind forms have
 been misplaced or forgotten, or the use of 'unwind-protect' could be
 simplified away.
@@ -441,26 +577,70 @@ simplified away.
 This warning can be suppressed using 'with-suppressed-warnings' with
 the warning name 'suspicious'.
 
-+++
-** New function 'file-user-uid'.
-This function is like 'user-uid', but is aware of file name handlers,
-so it will return the remote UID for remote files (or -1 if the
-connection has no associated user).
+---
+*** Warn about mutation of constant values.
+The compiler now warns about code that modifies program constants in
+some obvious cases.  Examples:
+
+    (setcar '(1 2) 7)
+    (aset [3 4] 0 8)
+    (aset "abc" 1 ?d)
+
+Such code may have unpredictable behaviour because the constants are
+part of the program, not data structures generated afresh during
+execution, and the compiler does not expect them to change.
+
+To avoid the warning, operate on an object created by the program
+(maybe a copy of the constant), or use a non-destructive operation
+instead.
+
+This warning can be suppressed using 'with-suppressed-warnings' with
+the warning name 'mutate-constant'.
+
+---
+*** Warn about more ignored function return values.
+The compiler now warns when the return value from certain functions is
+implicitly ignored.  Example:
+
+    (progn (nreverse my-list) my-list)
+
+will elicit a warning because it is usually pointless to call
+'nreverse' on a list without using the returned value.
+
+To silence the warning, make use of the value in some way, such as
+assigning it to a variable.  You can also wrap the function call in
+'(ignore ...)', or use 'with-suppressed-warnings' with the warning
+name 'ignored-return-value'.
+
+The warning will only be issued for calls to functions declared
+'important-return-value' or 'side-effect-free' (but not 'error-free').
 
 +++
-** 'fset' and 'defalias' now signal an error for circular alias chains.
-Previously, 'fset' and 'defalias' could be made to build circular
-function indirection chains as in
+** New function declaration and property 'important-return-value'.
+The declaration '(important-return-value t)' sets the
+'important-return-value' property which indicates that the function
+return value should probably not be thrown away implicitly.
+
++++
+** New functions 'file-user-uid' and 'file-group-gid'.
+These functions are like 'user-uid' and 'group-gid', respectively, but
+are aware of file name handlers, so they will return the remote UID or
+GID for remote files (or -1 if the connection has no associated user).
+
++++
+** 'fset', 'defalias' and 'defvaralias' now signal an error for cyclic aliases.
+Previously, 'fset', 'defalias' and 'defvaralias' could be made to
+build circular function and variable indirection chains as in
 
     (defalias 'able 'baker)
     (defalias 'baker 'able)
 
-but trying to call them would often make Emacs hang.  Now, an attempt
+but trying to use them would sometimes make Emacs hang.  Now, an attempt
 to create such a loop results in an error.
 
-Since circular alias chains now cannot occur, 'function-alias-p' and
-'indirect-function' will never signal an error.  Their second
-'noerror' arguments have no effect and are therefore obsolete.
+Since circular alias chains now cannot occur, 'function-alias-p',
+'indirect-function' and 'indirect-variable' will never signal an error.
+Their 'noerror' arguments have no effect and are therefore obsolete.
 
 
 * Changes in Emacs 30.1 on Non-Free Operating Systems

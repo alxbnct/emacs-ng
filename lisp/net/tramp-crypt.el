@@ -180,7 +180,8 @@ If NAME doesn't belong to an encrypted remote directory, return nil."
     (file-directory-p . tramp-handle-file-directory-p)
     (file-equal-p . tramp-handle-file-equal-p)
     (file-executable-p . tramp-crypt-handle-file-executable-p)
-    (file-exists-p . tramp-handle-file-exists-p)
+    (file-exists-p . tramp-crypt-handle-file-exists-p)
+    ;; `file-group-gid' performed by default-handler.
     (file-in-directory-p . tramp-handle-file-in-directory-p)
     (file-local-copy . tramp-handle-file-local-copy)
     (file-locked-p . tramp-crypt-handle-file-locked-p)
@@ -316,8 +317,7 @@ connection if a previous connection has died for some reason."
 	      :name (tramp-get-connection-name vec)
 	      :buffer (tramp-get-connection-buffer vec)
 	      :server t :host 'local :service t :noquery t)))
-      (process-put p 'tramp-vector vec)
-      (set-process-query-on-exit-flag p nil)))
+      (tramp-post-process-creation p vec)))
 
   ;; The following operations must be performed without
   ;; `tramp-crypt-file-name-handler'.
@@ -722,6 +722,11 @@ absolute file names."
   "Like `file-executable-p' for Tramp files."
   (let (tramp-crypt-enabled)
     (file-executable-p (tramp-crypt-encrypt-file-name filename))))
+
+(defun tramp-crypt-handle-file-exists-p (filename)
+  "Like `file-exists-p' for Tramp files."
+  (let (tramp-crypt-enabled)
+    (file-exists-p (tramp-crypt-encrypt-file-name filename))))
 
 (defun tramp-crypt-handle-file-locked-p (filename)
   "Like `file-locked-p' for Tramp files."
