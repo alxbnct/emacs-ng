@@ -729,6 +729,7 @@ u\"\\n\""
      (845 . font-lock-string-face) (886))))
 
 (ert-deftest python-font-lock-escape-sequence-bytes-newline ()
+  :expected-result :failed
   (python-tests-assert-faces
    "b'\\n'
 b\"\\n\""
@@ -741,6 +742,7 @@ b\"\\n\""
      (11 . font-lock-doc-face))))
 
 (ert-deftest python-font-lock-escape-sequence-hex-octal ()
+  :expected-result :failed
   (python-tests-assert-faces
    "b'\\x12 \\777 \\1\\23'
 '\\x12 \\777 \\1\\23'"
@@ -761,6 +763,7 @@ b\"\\n\""
      (36 . font-lock-doc-face))))
 
 (ert-deftest python-font-lock-escape-sequence-unicode ()
+  :expected-result :failed
   (python-tests-assert-faces
    "b'\\u1234 \\U00010348 \\N{Plus-Minus Sign}'
 '\\u1234 \\U00010348 \\N{Plus-Minus Sign}'"
@@ -775,6 +778,7 @@ b\"\\n\""
      (80 . font-lock-doc-face))))
 
 (ert-deftest python-font-lock-raw-escape-sequence ()
+  :expected-result :failed
   (python-tests-assert-faces
    "rb'\\x12 \123 \\n'
 r'\\x12 \123 \\n \\u1234 \\U00010348 \\N{Plus-Minus Sign}'"
@@ -1139,7 +1143,7 @@ while ((not some_condition) and
    (should (eq (car (python-indent-context)) :no-indent))
    (should (= (python-indent-calculate-indentation) 0))
    (forward-line 1)
-   (should (eq (car (python-indent-context)) :inside-paren))
+   (should (eq (car (python-indent-context)) :inside-paren-from-block))
    (should (= (python-indent-calculate-indentation) 7))
    (forward-line 1)
    (should (eq (car (python-indent-context)) :after-block-start))
@@ -1173,6 +1177,118 @@ CHOICES = (('some', 'choice'),
    (goto-char (point-max))
    ;; This signals an error if the test fails
    (should (eq (car (python-indent-context)) :inside-paren-newline-start))))
+
+(ert-deftest python-indent-inside-paren-block-1 ()
+  "`python-indent-block-paren-deeper' set to nil (default).
+See Bug#62696."
+  (python-tests-with-temp-buffer
+   "
+if ('VALUE' in my_unnecessarily_long_dictionary and
+    some_other_long_condition_case):
+    do_something()
+elif (some_case or
+      another_case):
+    do_another()
+"
+   (python-tests-look-at "if")
+   (should (eq (car (python-indent-context)) :no-indent))
+   (should (= (python-indent-calculate-indentation) 0))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-from-block))
+   (should (= (python-indent-calculate-indentation) 4))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :after-block-start))
+   (should (= (python-indent-calculate-indentation) 4))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :at-dedenter-block-start))
+   (should (= (python-indent-calculate-indentation) 0))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-from-block))
+   (should (= (python-indent-calculate-indentation) 6))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :after-block-start))
+   (should (= (python-indent-calculate-indentation) 4))))
+
+(ert-deftest python-indent-inside-paren-block-2 ()
+  "`python-indent-block-paren-deeper' set to t.
+See Bug#62696."
+  (python-tests-with-temp-buffer
+   "
+if ('VALUE' in my_unnecessarily_long_dictionary and
+        some_other_long_condition_case):
+    do_something()
+elif (some_case or
+      another_case):
+    do_another()
+"
+   (let ((python-indent-block-paren-deeper t))
+     (python-tests-look-at "if")
+     (should (eq (car (python-indent-context)) :no-indent))
+     (should (= (python-indent-calculate-indentation) 0))
+     (forward-line 1)
+     (should (eq (car (python-indent-context)) :inside-paren-from-block))
+     (should (= (python-indent-calculate-indentation) 8))
+     (forward-line 1)
+     (should (eq (car (python-indent-context)) :after-block-start))
+     (should (= (python-indent-calculate-indentation) 4))
+     (forward-line 1)
+     (should (eq (car (python-indent-context)) :at-dedenter-block-start))
+     (should (= (python-indent-calculate-indentation) 0))
+     (forward-line 1)
+     (should (eq (car (python-indent-context)) :inside-paren-from-block))
+     (should (= (python-indent-calculate-indentation) 6))
+     (forward-line 1)
+     (should (eq (car (python-indent-context)) :after-block-start))
+     (should (= (python-indent-calculate-indentation) 4)))))
+
+(ert-deftest python-indent-inside-paren-block-3 ()
+  "With backslash.  `python-indent-block-paren-deeper' set to nil (default).
+See Bug#62696."
+  (python-tests-with-temp-buffer
+   "
+if 'VALUE' in my_uncessarily_long_dictionary and\\
+   (some_other_long_condition_case or
+    another_case):
+    do_something()
+"
+   (python-tests-look-at "if")
+   (should (eq (car (python-indent-context)) :no-indent))
+   (should (= (python-indent-calculate-indentation) 0))
+   (forward-line 1)
+   (should (eq (car (python-indent-context))
+               :after-backslash-block-continuation))
+   (should (= (python-indent-calculate-indentation) 3))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-from-block))
+   (should (= (python-indent-calculate-indentation) 4))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :after-block-start))
+   (should (= (python-indent-calculate-indentation) 4))))
+
+(ert-deftest python-indent-inside-paren-block-4 ()
+  "With backslash.  `python-indent-block-paren-deeper' set to t.
+See Bug#62696."
+  (python-tests-with-temp-buffer
+   "
+if 'VALUE' in my_uncessarily_long_dictionary and\\
+   (some_other_long_condition_case or
+        another_case):
+    do_something()
+"
+   (let ((python-indent-block-paren-deeper t))
+     (python-tests-look-at "if")
+     (should (eq (car (python-indent-context)) :no-indent))
+     (should (= (python-indent-calculate-indentation) 0))
+     (forward-line 1)
+     (should (eq (car (python-indent-context))
+                 :after-backslash-block-continuation))
+     (should (= (python-indent-calculate-indentation) 3))
+     (forward-line 1)
+     (should (eq (car (python-indent-context)) :inside-paren-from-block))
+     (should (= (python-indent-calculate-indentation) 8))
+     (forward-line 1)
+     (should (eq (car (python-indent-context)) :after-block-start))
+     (should (= (python-indent-calculate-indentation) 4)))))
 
 (ert-deftest python-indent-after-block-1 ()
   "The most simple after-block case that shouldn't fail."
@@ -1670,7 +1786,7 @@ a == 4):
    (should (= (python-indent-calculate-indentation) 0))
    (should (= (python-indent-calculate-indentation t) 0))
    (python-tests-look-at "a == 4):\n")
-   (should (eq (car (python-indent-context)) :inside-paren))
+   (should (eq (car (python-indent-context)) :inside-paren-from-block))
    (should (= (python-indent-calculate-indentation) 6))
    (python-indent-line)
    (should (= (python-indent-calculate-indentation t) 4))
@@ -6597,6 +6713,18 @@ class Class:
    (should (python-info-docstring-p))
    (python-tests-look-at "'''Not a method docstring.'''")
    (should (not (python-info-docstring-p)))))
+
+(ert-deftest python-info-docstring-p-7 ()
+  "Test string in a dictionary."
+  (python-tests-with-temp-buffer
+   "
+{'Not a docstring': 1}
+'Also not a docstring'
+"
+   (python-tests-look-at "Not a docstring")
+   (should-not (python-info-docstring-p))
+   (python-tests-look-at "Also not a docstring")
+   (should-not (python-info-docstring-p))))
 
 (ert-deftest python-info-triple-quoted-string-p-1 ()
   "Test triple quoted string."

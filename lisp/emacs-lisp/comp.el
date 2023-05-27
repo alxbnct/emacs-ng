@@ -641,11 +641,14 @@ Useful to hook into pass checkers.")
 
 (defun comp-known-predicate-p (predicate)
   "Return t if PREDICATE is known."
-  (when (gethash predicate comp-known-predicates-h) t))
+  (when (or (gethash predicate comp-known-predicates-h)
+            (gethash predicate (comp-cstr-ctxt-pred-type-h comp-ctxt)))
+    t))
 
 (defun comp-pred-to-cstr (predicate)
   "Given PREDICATE, return the corresponding constraint."
-  (gethash predicate comp-known-predicates-h))
+  (or (gethash predicate comp-known-predicates-h)
+      (gethash predicate (comp-cstr-ctxt-pred-type-h comp-ctxt))))
 
 (defconst comp-symbol-values-optimizable '(most-positive-fixnum
                                            most-negative-fixnum)
@@ -1540,7 +1543,7 @@ STACK-OFF is the index of the first slot frame involved."
                              for sp from stack-off
                              collect (comp-slot-n sp))))
 
-(cl-defun make-comp-mvar (&key slot (constant nil const-vld) type)
+(cl-defun make-comp-mvar (&key slot (constant nil const-vld) type neg)
   "`comp-mvar' initializer."
   (let ((mvar (make--comp-mvar :slot slot)))
     (when const-vld
@@ -1548,6 +1551,8 @@ STACK-OFF is the index of the first slot frame involved."
       (setf (comp-cstr-imm mvar) constant))
     (when type
       (setf (comp-mvar-typeset mvar) (list type)))
+    (when neg
+      (setf (comp-mvar-neg mvar) t))
     mvar))
 
 (defun comp-new-frame (size vsize &optional ssa)
@@ -1712,6 +1717,10 @@ Return value is the fall-through block name."
 
 (defun comp-jump-table-optimizable (jmp-table)
   "Return t if JMP-TABLE can be optimized out."
+  ;; Identify LAP sequences like:
+  ;; (byte-constant #s(hash-table size 3 test eq rehash-size 1.5 rehash-threshold 0.8125 purecopy t data (created 126 deleted 126 changed 126)) . 24)
+  ;; (byte-switch)
+  ;; (TAG 126 . 10)
   (cl-loop
    with labels = (cl-loop for target-label being each hash-value of jmp-table
                           collect target-label)
@@ -1719,7 +1728,10 @@ Return value is the fall-through block name."
    for l in (cdr-safe labels)
    unless (= l x)
      return nil
-   finally return t))
+   finally return (pcase (nth (1+ (comp-limplify-pc comp-pass))
+                              (comp-func-lap comp-func))
+                    (`(TAG ,label . ,_label-sp)
+                     (= label l)))))
 
 (defun comp-emit-switch (var last-insn)
   "Emit a Limple for a lap jump table given VAR and LAST-INSN."
@@ -1764,27 +1776,32 @@ Return value is the fall-through block name."
     (_ (signal 'native-ice
                '("missing previous setimm while creating a switch")))))
 
+(defun comp--func-arity (subr-name)
+  "Like `func-arity' but invariant against primitive redefinitions.
+SUBR-NAME is the name of function."
+  (or (gethash subr-name comp-subr-arities-h)
+      (func-arity subr-name)))
+
 (defun comp-emit-set-call-subr (subr-name sp-delta)
     "Emit a call for SUBR-NAME.
 SP-DELTA is the stack adjustment."
-    (let ((subr (symbol-function subr-name))
-          (nargs (1+ (- sp-delta))))
-      (let* ((arity (func-arity subr))
-             (minarg (car arity))
-             (maxarg (cdr arity)))
-        (when (eq maxarg 'unevalled)
-          (signal 'native-ice (list "subr contains unevalled args" subr-name)))
-        (if (eq maxarg 'many)
-            ;; callref case.
-            (comp-emit-set-call (comp-callref subr-name nargs (comp-sp)))
-          ;; Normal call.
-          (unless (and (>= maxarg nargs) (<= minarg nargs))
-            (signal 'native-ice
-                    (list "incoherent stack adjustment" nargs maxarg minarg)))
-          (let* ((subr-name subr-name)
-                 (slots (cl-loop for i from 0 below maxarg
-                                 collect (comp-slot-n (+ i (comp-sp))))))
-            (comp-emit-set-call (apply #'comp-call (cons subr-name slots))))))))
+    (let* ((nargs (1+ (- sp-delta)))
+           (arity (comp--func-arity subr-name))
+           (minarg (car arity))
+           (maxarg (cdr arity)))
+      (when (eq maxarg 'unevalled)
+        (signal 'native-ice (list "subr contains unevalled args" subr-name)))
+      (if (eq maxarg 'many)
+          ;; callref case.
+          (comp-emit-set-call (comp-callref subr-name nargs (comp-sp)))
+        ;; Normal call.
+        (unless (and (>= maxarg nargs) (<= minarg nargs))
+          (signal 'native-ice
+                  (list "incoherent stack adjustment" nargs maxarg minarg)))
+        (let* ((subr-name subr-name)
+               (slots (cl-loop for i from 0 below maxarg
+                               collect (comp-slot-n (+ i (comp-sp))))))
+          (comp-emit-set-call (apply #'comp-call (cons subr-name slots)))))))
 
 (eval-when-compile
   (defun comp-op-to-fun (x)
@@ -2531,6 +2548,19 @@ TARGET-BB-SYM is the symbol name of the target block."
     for insns-seq on (comp-block-insns b)
     do
     (pcase insns-seq
+      (`((set ,(and (pred comp-mvar-p) mvar-tested-copy)
+              ,(and (pred comp-mvar-p) mvar-tested))
+         (set ,(and (pred comp-mvar-p) mvar-1)
+              (call type-of ,(and (pred comp-mvar-p) mvar-tested-copy)))
+         (set ,(and (pred comp-mvar-p) mvar-2)
+              (call symbol-value ,(and (pred comp-cstr-cl-tag-p) mvar-tag)))
+         (set ,(and (pred comp-mvar-p) mvar-3)
+              (call memq ,(and (pred comp-mvar-p) mvar-1) ,(and (pred comp-mvar-p) mvar-2)))
+         (cond-jump ,(and (pred comp-mvar-p) mvar-3) ,(pred comp-mvar-p) ,bb1 ,bb2))
+       (push  `(assume ,mvar-tested ,(make-comp-mvar :type (comp-cstr-cl-tag mvar-tag)))
+              (comp-block-insns (comp-add-cond-cstrs-target-block b bb2)))
+       (push  `(assume ,mvar-tested ,(make-comp-mvar :type (comp-cstr-cl-tag mvar-tag) :neg t))
+              (comp-block-insns (comp-add-cond-cstrs-target-block b bb1))))
       (`((set ,(and (pred comp-mvar-p) cmp-res)
               (,(pred comp-call-op-p)
                ,(and (or (pred comp-equality-fun-p)
@@ -3186,7 +3216,11 @@ Fold the call in case."
       (+ (comp-cstr-add lval args))
       (- (comp-cstr-sub lval args))
       (1+ (comp-cstr-add lval `(,(car args) ,comp-cstr-one)))
-      (1- (comp-cstr-sub lval `(,(car args) ,comp-cstr-one))))))
+      (1- (comp-cstr-sub lval `(,(car args) ,comp-cstr-one)))
+      (record (when (comp-cstr-imm-vld-p (car args))
+                (comp-cstr-shallow-copy lval
+                                        (comp-type-spec-to-cstr
+                                         (comp-cstr-imm (car args)))))))))
 
 (defun comp-fwprop-insn (insn)
   "Propagate within INSN."
@@ -3720,6 +3754,7 @@ Prepare every function for final compilation and drive the C back-end."
                            ',native-comp-compiler-options
                            native-comp-driver-options
                            ',native-comp-driver-options
+                           byte-compile-warnings ',byte-compile-warnings
                            load-path ',load-path)
                      ,native-comp-async-env-modifier-form
                      (message "Compiling %s..." ',output)
@@ -3992,6 +4027,7 @@ display a message."
                                              native-comp-driver-options
                                              load-path
                                              backtrace-line-length
+                                             byte-compile-warnings
                                              ;; package-load-list
                                              ;; package-user-dir
                                              ;; package-directory-list
@@ -4225,8 +4261,9 @@ bytecode definition was not changed in the meantime)."
           ;; compilation, so update `comp-files-queue' to reflect that.
           (unless (or (null load)
                       (eq load (cdr entry)))
-            (cl-substitute (cons file load) (car entry) comp-files-queue
-                           :key #'car :test #'string=))
+            (setf comp-files-queue
+                  (cl-substitute (cons file load) (car entry) comp-files-queue
+                                 :key #'car :test #'string=)))
 
         (unless (native-compile-async-skip-p file load selector)
           (let* ((out-filename (comp-el-to-eln-filename file))
