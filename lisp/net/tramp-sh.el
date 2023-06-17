@@ -80,13 +80,6 @@ the default storage location, e.g. \"$HOME/.sh_history\"."
                  (const :tag "Unset HISTFILE" t)
                  (string :tag "Redirect to a file")))
 
-;;;###tramp-autoload
-(defconst tramp-display-escape-sequence-regexp (rx "\e" (+ (any ";[" digit)) "m")
-  "Terminal control escape sequences for display attributes.")
-
-(defconst tramp-device-escape-sequence-regexp (rx "\e" (+ (any "[" digit)) "n")
-  "Terminal control escape sequences for device status.")
-
 ;; ksh on OpenBSD 4.5 requires that $PS1 contains a `#' character for
 ;; root users.  It uses the `$' character for other users.  In order
 ;; to guarantee a proper prompt, we use "#$ " for the prompt.
@@ -1073,6 +1066,7 @@ Format specifiers \"%s\" are replaced before the script is used.")
     (file-equal-p . tramp-handle-file-equal-p)
     (file-executable-p . tramp-sh-handle-file-executable-p)
     (file-exists-p . tramp-sh-handle-file-exists-p)
+    (file-group-gid . tramp-handle-file-group-gid)
     (file-in-directory-p . tramp-handle-file-in-directory-p)
     (file-local-copy . tramp-sh-handle-file-local-copy)
     (file-locked-p . tramp-handle-file-locked-p)
@@ -2426,14 +2420,11 @@ The method used must be an out-of-band method."
 		      (tramp-get-connection-name v)
 		      (tramp-get-connection-buffer v)
 		      copy-program copy-args)))
-		(tramp-message v 6 "%s" (string-join (process-command p) " "))
-		(process-put p 'tramp-vector v)
 		;; This is neded for ssh or PuTTY based processes, and
 		;; only if the respective options are set.  Perhaps,
 		;; the setting could be more fine-grained.
 		;; (process-put p 'tramp-shared-socket t)
-		(process-put p 'adjust-window-size-function #'ignore)
-		(set-process-query-on-exit-flag p nil)
+		(tramp-post-process-creation p v)
 
 		;; We must adapt `tramp-local-end-of-line' for sending
 		;; the password.  Also, we indicate that perhaps
@@ -2568,7 +2559,7 @@ The method used must be an out-of-band method."
       (setq switches
 	    (append switches (split-string (tramp-sh--quoting-style-options v))))
       (unless (tramp-get-ls-command-with v "--dired")
-	(setq switches (delete "--dired" switches)))
+	(setq switches (delete "-N" (delete "--dired" switches))))
       (when wildcard
         (setq wildcard (tramp-run-real-handler
 			#'file-name-nondirectory (list localname)))
@@ -2656,7 +2647,7 @@ The method used must be an out-of-band method."
 	  (unless (tramp-compat-string-search
 		   "color" (tramp-get-connection-property v "ls" ""))
 	    (goto-char (point-min))
-	    (while (re-search-forward tramp-display-escape-sequence-regexp nil t)
+	    (while (re-search-forward ansi-color-control-seq-regexp nil t)
 	      (replace-match "")))
 
           ;; Now decode what read if necessary.  Stolen from `insert-directory'.
@@ -2934,6 +2925,7 @@ implementation will be used."
 		 v 'file-error "Stderr buffer `%s' not supported" stderr))
 	      (with-current-buffer stderr
 		(setq buffer-read-only nil))
+	      (tramp-taint-remote-process-buffer stderr)
 	      ;; Create named pipe.
 	      (tramp-send-command
 	       v (format (tramp-get-remote-mknod-or-mkfifo v) tmpstderr))
@@ -3135,7 +3127,7 @@ implementation will be used."
             (if (tramp-compat-string-search "=" elt)
                 (setq env (append env `(,elt)))
               (setq uenv (cons elt uenv)))))
-      (setenv-internal env "INSIDE_EMACS" (tramp-inside-emacs) 'keep)
+      (setq env (setenv-internal env "INSIDE_EMACS" (tramp-inside-emacs) 'keep))
       (when env
 	(setq command
 	      (format
@@ -3759,8 +3751,6 @@ Fall back to normal file name handler if no Tramp handler exists."
 	   v 'file-notify-error
 	   "`%s' failed to start on remote host"
 	   (string-join sequence " "))
-	(tramp-message v 6 "Run `%s', %S" (string-join sequence " ") p)
-	(process-put p 'tramp-vector v)
 	;; This is neded for ssh or PuTTY based processes, and only if
 	;; the respective options are set.  Perhaps, the setting could
 	;; be more fine-grained.
@@ -3768,9 +3758,9 @@ Fall back to normal file name handler if no Tramp handler exists."
 	;; Needed for process filter.
 	(process-put p 'tramp-events events)
 	(process-put p 'tramp-watch-name localname)
-	(set-process-query-on-exit-flag p nil)
 	(set-process-filter p filter)
 	(set-process-sentinel p #'tramp-file-notify-process-sentinel)
+	(tramp-post-process-creation p v)
 	;; There might be an error if the monitor is not supported.
 	;; Give the filter a chance to read the output.
 	(while (tramp-accept-process-output p))
@@ -4326,6 +4316,7 @@ seconds.  If not, it produces an error message with the given ERROR-ARGS."
 	 proc timeout
 	 (rx
 	  (| (regexp shell-prompt-pattern) (regexp tramp-shell-prompt-pattern))
+	  (? (regexp ansi-color-control-seq-regexp))
 	  eos))
       (error
        (delete-process proc)
@@ -4496,7 +4487,7 @@ process to set up.  VEC specifies the connection."
 
     ;; Set `remote-tty' process property.
     (let ((tty (tramp-send-command-and-read vec "echo \\\"`tty`\\\"" 'noerror)))
-      (unless (string-empty-p tty)
+      (unless (tramp-string-empty-or-nil-p tty)
 	(process-put proc 'remote-tty tty)
 	(tramp-set-connection-property proc "remote-tty" tty)))
 
@@ -4834,6 +4825,7 @@ Goes through the list `tramp-inline-compress-commands'."
   "Check, whether local ssh OPTION is applicable."
   ;; We don't want to cache it persistently.
   (with-tramp-connection-property nil option
+    ;; "ssh -G" is introduced in OpenSSH 6.7.
     ;; We use a non-existing IP address for check, in order to avoid
     ;; useless connections, and DNS timeouts.
     (zerop
@@ -4859,26 +4851,33 @@ Goes through the list `tramp-inline-compress-commands'."
          (stringp tramp-ssh-controlmaster-options))
     tramp-ssh-controlmaster-options)
 
+   ;; We can't auto-compute the options.
+   ((ignore-errors
+      (not (tramp-ssh-option-exists-p vec "ControlMaster=auto")))
+    "")
+
    ;; Determine the options.
    (t (ignore-errors
         ;; ControlMaster and ControlPath options are introduced in OpenSSH 3.9.
-	(when (tramp-ssh-option-exists-p vec "ControlMaster=auto")
-          (concat
-           "-o ControlMaster="
-           (if (eq tramp-use-connection-share 'suppress)
-               "no" "auto")
+        (concat
+         "-o ControlMaster="
+         (if (eq tramp-use-connection-share 'suppress)
+             "no" "auto")
 
-           " -o ControlPath="
-           (if (eq tramp-use-connection-share 'suppress)
-               "none"
-             ;; Hashed tokens are introduced in OpenSSH 6.7.
-	     (if (tramp-ssh-option-exists-p vec "ControlPath=tramp.%C")
-		 "tramp.%%C" "tramp.%%r@%%h:%%p"))
+         " -o ControlPath="
+         (if (eq tramp-use-connection-share 'suppress)
+             "none"
+           ;; Hashed tokens are introduced in OpenSSH 6.7.
+	   (expand-file-name
+	    (if (tramp-ssh-option-exists-p vec "ControlPath=tramp.%C")
+		"tramp.%%C" "tramp.%%r@%%h:%%p")
+	    (or small-temporary-file-directory
+		tramp-compat-temporary-file-directory)))
 
-           ;; ControlPersist option is introduced in OpenSSH 5.6.
-	   (when (and (not (eq tramp-use-connection-share 'suppress))
-                      (tramp-ssh-option-exists-p vec "ControlPersist=no"))
-	     " -o ControlPersist=no")))))))
+         ;; ControlPersist option is introduced in OpenSSH 5.6.
+	 (when (and (not (eq tramp-use-connection-share 'suppress))
+                    (tramp-ssh-option-exists-p vec "ControlPersist=no"))
+	   " -o ControlPersist=no"))))))
 
 (defun tramp-scp-strict-file-name-checking (vec)
   "Return the strict file name checking argument of the local scp."
@@ -5130,18 +5129,14 @@ connection if a previous connection has died for some reason."
 			    (and tramp-encoding-command-interactive
 				 (list tramp-encoding-command-interactive)))))))
 
-		;; Set sentinel and query flag.  Initialize variables.
-		(set-process-sentinel p #'tramp-process-sentinel)
-		(process-put p 'tramp-vector vec)
 		;; This is neded for ssh or PuTTY based processes, and
 		;; only if the respective options are set.  Perhaps,
 		;; the setting could be more fine-grained.
 		;; (process-put p 'tramp-shared-socket t)
-		(process-put p 'adjust-window-size-function #'ignore)
-		(set-process-query-on-exit-flag p nil)
+		;; Set sentinel.  Initialize variables.
+		(set-process-sentinel p #'tramp-process-sentinel)
+		(tramp-post-process-creation p vec)
 		(setq tramp-current-connection (cons vec (current-time)))
-
-		(tramp-message vec 6 "%s" (string-join (process-command p) " "))
 
 		;; Set connection-local variables.
 		(tramp-set-connection-local-variables vec)
@@ -5302,14 +5297,14 @@ function waits for output unless NOOUTPUT is set."
     (tramp-error proc 'file-error "Process `%s' not available, try again" proc))
   (with-current-buffer (process-buffer proc)
     (let* (;; Initially, `tramp-end-of-output' is "#$ ".  There might
-	   ;; be leading escape sequences, which must be ignored.
-	   ;; Busyboxes built with the EDITING_ASK_TERMINAL config
-	   ;; option send also escape sequences, which must be
-	   ;; ignored.
+	   ;; be leading ANSI control escape sequences, which must be
+	   ;; ignored.  Busyboxes built with the EDITING_ASK_TERMINAL
+	   ;; config option send also ANSI control escape sequences,
+	   ;; which must be ignored.
 	   (regexp (rx
 		    (* (not (any "#$\n")))
 		    (literal tramp-end-of-output)
-		    (? (regexp tramp-device-escape-sequence-regexp))
+		    (? (regexp ansi-color-control-seq-regexp))
 		    (? "\r") eol))
 	   ;; Sometimes, the commands do not return a newline but a
 	   ;; null byte before the shell prompt, for example "git
