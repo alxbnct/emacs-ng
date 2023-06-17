@@ -1,7 +1,7 @@
 /* Compile Emacs Lisp into native code.
    Copyright (C) 2019-2023 Free Software Foundation, Inc.
 
-Author: Andrea Corallo <akrl@sdf.org>
+Author: Andrea Corallo <acorallo@gnu.org>
 
 This file is part of GNU Emacs.
 
@@ -5909,6 +5909,14 @@ For internal use.  */);
     doc: /* Hash table recording all loaded compilation units, file -> CU.  */);
   Vcomp_loaded_comp_units_h =
     CALLN (Fmake_hash_table, QCweakness, Qvalue, QCtest, Qequal);
+
+  DEFVAR_LISP ("comp-subr-arities-h", Vcomp_subr_arities_h,
+    doc: /* Hash table recording the arity of Lisp primitives.
+This is in case they are redefined so the compiler still knows how to
+compile calls to them.
+subr-name -> arity
+For internal use.  */);
+  Vcomp_subr_arities_h = CALLN (Fmake_hash_table, QCtest, Qequal);
 
   Fprovide (intern_c_string ("native-compile"), Qnil);
 #endif /* #ifdef HAVE_NATIVE_COMP */
