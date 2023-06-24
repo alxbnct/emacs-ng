@@ -455,6 +455,7 @@ so that all identifiers are recognized as words.")
   c++ '(c-extend-region-for-CPP
 	c-depropertize-CPP
 	c-before-change-check-ml-strings
+	c-unmark-<>-around-region
 	c-before-change-check-<>-operators
 	c-before-after-change-check-c++-modules
 	c-truncate-bs-cache
@@ -468,6 +469,7 @@ so that all identifiers are recognized as words.")
 	     c-parse-quotes-before-change
 	     c-before-change-fix-comment-escapes)
   java '(c-parse-quotes-before-change
+	 c-unmark-<>-around-region
 	 c-before-change-check-unbalanced-strings
 	 c-before-change-check-<>-operators)
   pike '(c-before-change-check-ml-strings
@@ -516,6 +518,7 @@ parameters \(point-min) and \(point-max).")
 	c-after-change-unmark-ml-strings
 	c-parse-quotes-after-change
 	c-after-change-mark-abnormal-strings
+	c-unmark-<>-around-region
 	c-extend-font-lock-region-for-macros
 	c-before-after-change-check-c++-modules
 	c-neutralize-syntax-in-CPP
@@ -524,6 +527,7 @@ parameters \(point-min) and \(point-max).")
   java '(c-depropertize-new-text
 	 c-after-change-escape-NL-in-string
 	 c-parse-quotes-after-change
+	 c-unmark-<>-around-region
 	 c-after-change-mark-abnormal-strings
 	 c-restore-<>-properties
 	 c-change-expand-fl-region)
@@ -586,7 +590,8 @@ Such a function takes one optional parameter, a buffer position (defaults to
 point), and returns nil or t.  This variable contains nil for languages which
 don't have EOL terminated statements. "
   t nil
-  (c c++ objc) 'c-at-macro-vsemi-p
+  (c objc) 'c-at-macro-vsemi-p
+  c++ 'c-c++-vsemi-p
   awk 'c-awk-at-vsemi-p)
 (c-lang-defvar c-at-vsemi-p-fn (c-lang-const c-at-vsemi-p-fn))
 
@@ -738,11 +743,11 @@ When non-nil, this variable should end in \"\\\\\\==\".  Note that
 such a backward search will match a minimal string, so a
 \"context character\" is probably needed at the start of the
 regexp.  The value for csharp-mode would be something like
-\"\\\\(:?\\\\`\\\\|[^\\\"]\\\\)\\\"*\\\\\\==\"."
+\"\\\\(?:\\\\`\\\\|[^\\\"]\\\\)\\\"*\\\\\\==\"."
   t nil
-  pike "\\(:?\\`\\|[^\\\"]\\)\\(:?\\\\.\\)*\\="
+  pike "\\(?:\\`\\|[^\\\"]\\)\\(?:\\\\.\\)*\\="
   ;;pike ;; 2
-  ;;    "\\(:?\\`\\|[^\"]\\)\"*\\="
+  ;;    "\\(?:\\`\\|[^\"]\\)\"*\\="
   )
 (c-lang-defvar c-ml-string-back-closer-re
 	       (c-lang-const c-ml-string-back-closer-re))
@@ -2634,9 +2639,12 @@ clause.  An arglist may or may not follow such a keyword."
   c++ '("requires"))
 
 (c-lang-defconst c-fun-name-substitute-key
-  ;; An adorned regular expression which matches any member of
+  ;; An unadorned regular expression which matches any member of
   ;; `c-fun-name-substitute-kwds'.
-  t (c-make-keywords-re t (c-lang-const c-fun-name-substitute-kwds)))
+  t (c-make-keywords-re 'appendable (c-lang-const c-fun-name-substitute-kwds)))
+;; We use 'appendable, so that we get "\\>" on the regexp, but without a further
+;; character, which would mess up backward regexp search from just after the
+;; keyword.  If only XEmacs had \\_>.  ;-(
 (c-lang-defvar c-fun-name-substitute-key
 	       (c-lang-const c-fun-name-substitute-key))
 
