@@ -143,7 +143,7 @@
                               eol))
                       @font-lock-builtin-face)))
      ((identifier) @font-lock-type-face
-      (:match "^\\(:?Err\\|Ok\\|None\\|Some\\)$" @font-lock-type-face)))
+      (:match "\\`\\(?:Err\\|Ok\\|None\\|Some\\)\\'" @font-lock-type-face)))
 
    :language 'rust
    :feature 'comment
@@ -212,11 +212,11 @@
      (scoped_use_list path: (scoped_identifier
                              name: (identifier) @font-lock-constant-face))
      ((use_as_clause alias: (identifier) @font-lock-type-face)
-      (:match "^[A-Z]" @font-lock-type-face))
+      (:match "\\`[A-Z]" @font-lock-type-face))
      ((use_as_clause path: (identifier) @font-lock-type-face)
-      (:match "^[A-Z]" @font-lock-type-face))
+      (:match "\\`[A-Z]" @font-lock-type-face))
      ((use_list (identifier) @font-lock-type-face)
-      (:match "^[A-Z]" @font-lock-type-face))
+      (:match "\\`[A-Z]" @font-lock-type-face))
      (use_wildcard [(identifier) @rust-ts-mode--fontify-scope
                     (scoped_identifier
                      name: (identifier) @rust-ts-mode--fontify-scope)])
@@ -232,9 +232,12 @@
      (type_identifier) @font-lock-type-face
      ((scoped_identifier name: (identifier) @rust-ts-mode--fontify-tail))
      ((scoped_identifier path: (identifier) @font-lock-type-face)
-      (:match
-       "^\\(u8\\|u16\\|u32\\|u64\\|u128\\|usize\\|i8\\|i16\\|i32\\|i64\\|i128\\|isize\\|char\\|str\\)$"
-       @font-lock-type-face))
+      (:match ,(rx bos
+                   (or "u8" "u16" "u32" "u64" "u128" "usize"
+                       "i8" "i16" "i32" "i64" "i128" "isize"
+                       "char" "str")
+                   eos)
+              @font-lock-type-face))
      ((scoped_identifier path: (identifier) @rust-ts-mode--fontify-scope))
      ((scoped_type_identifier path: (identifier) @rust-ts-mode--fontify-scope))
      (type_identifier) @font-lock-type-face)
@@ -249,7 +252,7 @@
    :feature 'constant
    `((boolean_literal) @font-lock-constant-face
      ((identifier) @font-lock-constant-face
-      (:match "^[A-Z][A-Z\\d_]*$" @font-lock-constant-face)))
+      (:match "\\`[A-Z][0-9A-Z_]*\\'" @font-lock-constant-face)))
 
    :language 'rust
    :feature 'variable
@@ -350,7 +353,12 @@ Return nil if there is no name or if NODE is not a defun node."
       (treesit-node-child-by-field-name node "name") t))))
 
 (defun rust-ts-mode--syntax-propertize (beg end)
-  "Apply syntax text property to template delimiters between BEG and END.
+  "Apply syntax properties to special characters between BEG and END.
+
+Apply syntax properties to various special characters with
+contextual meaning between BEG and END.
+
+The apostrophe \\=' should be treated as string when used for char literals.
 
 < and > are usually punctuation, e.g., as greater/less-than.  But
 when used for types, they should be considered pairs.
@@ -359,11 +367,18 @@ This function checks for < and > in the changed RANGES and apply
 appropriate text property to alter the syntax of template
 delimiters < and >'s."
   (goto-char beg)
+  (while (search-forward "'" end t)
+    (when (string-equal "char_literal"
+                        (treesit-node-type
+                         (treesit-node-at (match-beginning 0))))
+      (put-text-property (match-beginning 0) (match-end 0)
+                         'syntax-table (string-to-syntax "\""))))
+  (goto-char beg)
   (while (re-search-forward (rx (or "<" ">")) end t)
     (pcase (treesit-node-type
             (treesit-node-parent
              (treesit-node-at (match-beginning 0))))
-      ("type_arguments"
+      ((or "type_arguments" "type_parameters")
        (put-text-property (match-beginning 0)
                           (match-end 0)
                           'syntax-table

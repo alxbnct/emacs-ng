@@ -6391,7 +6391,7 @@ windows can get as small as `window-safe-min-height' and
                      (selected-window)))
       (delete-other-windows-internal window root)
       ;; Create a new window to replace the existing one.
-      (setq window (prog1 (split-window window)
+      (setq window (prog1 (split-window window window-safe-min-width t)
                      (delete-window window)))))
 
   (set-window-dedicated-p window nil)
@@ -8784,6 +8784,14 @@ another window."
   :version "29.1"
   :group 'windows
   :group 'comint)
+
+(defcustom display-tex-shell-buffer-action '(display-buffer-in-previous-window)
+  "`display-buffer' action for displaying TeX shell buffers."
+  :type display-buffer--action-custom-type
+  :risky t
+  :version "29.1"
+  :group 'windows
+  :group 'tex-run)
 
 (defun read-buffer-to-switch (prompt)
   "Read the name of a buffer to switch to, prompting with PROMPT.
