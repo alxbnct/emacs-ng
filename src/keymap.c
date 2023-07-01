@@ -1363,7 +1363,7 @@ recognize the default bindings, just as `read-key-sequence' does.  */)
 		{
 		  USE_SAFE_ALLOCA;
 		  ptrdiff_t size = SCHARS (key_item), n;
-		  if (INT_MULTIPLY_WRAPV (size, MAX_MULTIBYTE_LENGTH, &n))
+		  if (ckd_mul (&n, size, MAX_MULTIBYTE_LENGTH))
 		    n = PTRDIFF_MAX;
 		  unsigned char *dst = SAFE_ALLOCA (n);
 		  unsigned char *p = dst;
@@ -1411,7 +1411,7 @@ recognize the default bindings, just as `read-key-sequence' does.  */)
 
 	  USE_SAFE_ALLOCA;
 	  ptrdiff_t size = SCHARS (lc_key), n;
-	  if (INT_MULTIPLY_WRAPV (size, MAX_MULTIBYTE_LENGTH, &n))
+	  if (ckd_mul (&n, size, MAX_MULTIBYTE_LENGTH))
 	    n = PTRDIFF_MAX;
 	  unsigned char *dst = SAFE_ALLOCA (n);
 
@@ -2097,7 +2097,7 @@ For an approximate inverse of this, see `kbd'.  */)
 
   /* This has one extra element at the end that we don't pass to Fconcat.  */
   ptrdiff_t size4;
-  if (INT_MULTIPLY_WRAPV (nkeys + nprefix, 4, &size4))
+  if (ckd_mul (&size4, nkeys + nprefix, 4))
     memory_full (SIZE_MAX);
   SAFE_ALLOCA_LISP (args, size4);
 
@@ -3308,13 +3308,18 @@ describe_vector (Lisp_Object vector, Lisp_Object prefix, Lisp_Object args,
       if (this_shadowed)
 	{
 	  SET_PT (PT - 1);
-	  static char const fmt[] = "  (currently shadowed by `%s')";
-	  USE_SAFE_ALLOCA;
-	  char *buffer = SAFE_ALLOCA (sizeof fmt +
-				      SBYTES (SYMBOL_NAME (shadowed_by)));
-	  esprintf (buffer, fmt, SDATA (SYMBOL_NAME (shadowed_by)));
-	  insert_string (buffer);
-	  SAFE_FREE();
+	  if (SYMBOLP (shadowed_by))
+	    {
+	      static char const fmt[] = "  (currently shadowed by `%s')";
+	      USE_SAFE_ALLOCA;
+	      char *buffer =
+		SAFE_ALLOCA (sizeof fmt + SBYTES (SYMBOL_NAME (shadowed_by)));
+	      esprintf (buffer, fmt, SDATA (SYMBOL_NAME (shadowed_by)));
+	      insert_string (buffer);
+	      SAFE_FREE();
+	    }
+	  else	/* Could be a keymap, a lambda, or a keyboard macro.  */
+	    insert_string ("  (currently shadowed)");
 	  SET_PT (PT + 1);
 	}
     }

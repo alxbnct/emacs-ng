@@ -453,7 +453,9 @@ valid signal handlers.")
           (const   :tag "Unlimited" nil))
   :version "22.1")
 
-(defcustom gdb-non-stop-setting (not (eq system-type 'windows-nt))
+;; This is disabled by default because we don't really support
+;; asynchronous execution of the debuggee; see bug#63084.  FIXME.
+(defcustom gdb-non-stop-setting nil
   "If non-nil, GDB sessions are expected to support the non-stop mode.
 When in the non-stop mode, stopped threads can be examined while
 other threads continue to execute.
@@ -468,7 +470,7 @@ don't support the non-stop mode.
 GDB session needs to be restarted for this setting to take effect."
   :type 'boolean
   :group 'gdb-non-stop
-  :version "26.1")
+  :version "29.1")
 
 (defcustom gdb-debuginfod-enable-setting
   ;; debuginfod servers are only for ELF executables, and elfutils, of
@@ -2406,7 +2408,7 @@ a GDB/MI reply message."
     ("+" . ())
     ("=" . (("thread-created" . (gdb-thread-created . atomic))
             ("thread-selected" . (gdb-thread-selected . atomic))
-            ("thread-existed" . (gdb-ignored-notification . atomic))
+            ("thread-exited" . (gdb-thread-exited . atomic))
             ('default . (gdb-ignored-notification . atomic)))))
   "Alist of alists, mapping the type and class of message to a handler function.
 Handler functions are all flagged as either `progressive' or `atomic'.
@@ -3244,7 +3246,8 @@ Place breakpoint icon in its buffer."
       (if (re-search-forward gdb-source-file-regexp nil t)
           (progn
             (setq source-file (gdb-mi--c-string-from-string (match-string 1)))
-            (delete (cons bptno "File not found") gdb-location-alist)
+            (setq gdb-location-alist
+                  (delete (cons bptno "File not found") gdb-location-alist))
             (push (cons bptno source-file) gdb-location-alist))
         (gdb-resync)
         (unless (assoc bptno gdb-location-alist)

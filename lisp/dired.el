@@ -927,9 +927,9 @@ marked file, return (t FILENAME) instead of (FILENAME)."
 		    (lambda ()
 		      (if ,show-progress (sit-for 0))
 		      (setq results (cons ,body results))))
-		   (if (< ,arg 0)
-		       (nreverse results)
-		     results))
+		   (when (< ,arg 0)
+		     (setq results (nreverse results)))
+		   results)
 	       ;; non-nil, non-integer, non-marked ARG means use current file:
                (list ,body))
 	   (let ((regexp (dired-marker-regexp)) next-position)
@@ -1632,6 +1632,7 @@ In other cases, DIR should be a directory name or a directory filename.
 If HDR is non-nil, insert a header line with the directory name."
   (let ((opoint (point))
 	(process-environment (copy-sequence process-environment))
+        (remotep (file-remote-p dir))
 	end)
     (if (and
 	 ;; Don't try to invoke `ls' if we are on DOS/Windows where
@@ -1641,31 +1642,29 @@ If HDR is non-nil, insert a header line with the directory name."
 		   (null ls-lisp-use-insert-directory-program)))
          ;; FIXME: Big ugly hack for Eshell's eshell-ls-use-in-dired.
          (not (bound-and-true-p eshell-ls-use-in-dired))
-	 (or (file-remote-p dir)
+	 (or remotep
              (if (eq dired-use-ls-dired 'unspecified)
 		 ;; Check whether "ls --dired" gives exit code 0, and
 		 ;; save the answer in `dired-use-ls-dired'.
 		 (or (setq dired-use-ls-dired
 			   (eq 0 (call-process insert-directory-program
-                                               nil nil nil "--dired")))
+                                               nil nil nil "--dired" "-N")))
 		     (progn
-		       (message "ls does not support --dired; \
+		       (message "ls does not support --dired -N; \
 see `dired-use-ls-dired' for more details.")
 		       nil))
 	       dired-use-ls-dired)))
-	(setq switches (concat "--dired " switches)))
+        ;; Use -N with --dired, to countermand possible non-default
+        ;; quoting style, in particular via the environment variable
+        ;; QUOTING_STYLE.
+        (unless remotep
+	  (setq switches (concat "--dired -N " switches))))
     ;; Expand directory wildcards and fill file-list.
     (let ((dir-wildcard (insert-directory-wildcard-in-dir-p dir)))
       (cond (dir-wildcard
              (setq switches (concat "-d " switches))
-             ;; We don't know whether the remote ls supports
-             ;; "--dired", so we cannot add it to the `process-file'
-             ;; call for wildcards.
-             (when (file-remote-p dir)
-               (setq switches (string-replace "--dired" "" switches)))
              (let* ((default-directory (car dir-wildcard))
                     (script (format "ls %s %s" switches (cdr dir-wildcard)))
-                    (remotep (file-remote-p dir))
                     (sh (or (and remotep "/bin/sh")
                             (executable-find shell-file-name)
                             (executable-find "sh")))
@@ -2777,10 +2776,11 @@ This kills the Dired buffer, then visits the current line's file or directory."
 The optional arguments FIND-FILE-FUNC and FIND-DIR-FUNC specify
 functions to visit the file and directory, respectively.  If
 omitted or nil, these arguments default to `find-file' and `dired',
-respectively."
+respectively.  If `dired-kill-when-opening-new-dired-buffer' is
+non-nil, FIND-DIR-FUNC defaults to `find-alternate-file' instead,
+so that the original Dired buffer is not kept."
   (interactive "e")
   (or find-file-func (setq find-file-func 'find-file))
-  (or find-dir-func (setq find-dir-func 'dired))
   (let (window pos file)
     (save-excursion
       (setq window (posn-window (event-end event))
@@ -2788,6 +2788,12 @@ respectively."
       (if (not (windowp window))
 	  (error "No file chosen"))
       (set-buffer (window-buffer window))
+      (unless find-dir-func
+        (setq find-dir-func
+              (if (and dired-kill-when-opening-new-dired-buffer
+                       (< (length (get-buffer-window-list)) 2))
+                  'find-alternate-file
+                'dired)))
       (goto-char pos)
       (setq file (dired-get-file-for-visit)))
     (if (file-directory-p file)
