@@ -4447,6 +4447,8 @@ by calling `format-decode', which see.  */)
 
       if (unprocessed > 0)
 	{
+	  BUF_TEMP_SET_PT (XBUFFER (conversion_buffer),
+			   BUF_Z (XBUFFER (conversion_buffer)));
 	  coding.mode |= CODING_MODE_LAST_BLOCK;
 	  decode_coding_c_string (&coding, (unsigned char *) read_buf,
 				  unprocessed, conversion_buffer);
@@ -5246,6 +5248,7 @@ write_region (Lisp_Object start, Lisp_Object end, Lisp_Object filename,
     }
 
   record_unwind_protect (save_restriction_restore, save_restriction_save ());
+  labeled_restrictions_remove_in_current_buffer ();
 
   /* Special kludge to simplify auto-saving.  */
   if (NILP (start))
@@ -6275,7 +6278,7 @@ static Lisp_Object
 blocks_to_bytes (uintmax_t blocksize, uintmax_t blocks, bool negate)
 {
   intmax_t n;
-  if (!INT_MULTIPLY_WRAPV (blocksize, blocks, &n))
+  if (!ckd_mul (&n, blocksize, blocks))
     return make_int (negate ? -n : n);
   Lisp_Object bs = make_uint (blocksize);
   if (negate)

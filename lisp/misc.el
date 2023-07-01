@@ -63,21 +63,47 @@ Also see the `duplicate-line' command."
 				 (+ n (point)))))))
     (insert string)))
 
+(defcustom duplicate-line-final-position 0
+  "Where to put point after duplicating the line with `duplicate-line'.
+When 0, leave point on the original line.
+When 1, move point to the first new line.
+When -1, move point to the last new line.
+The same column is preserved after moving to a new line."
+  :type '(choice (const :tag "Leave point on old line" 0)
+                 (const :tag "Move point to first new line" 1)
+                 (const :tag "Move point to last new line" -1)
+                 (integer))
+  :group 'editing
+  :version "29.1")
+
+(defun duplicate--insert-copies (n string)
+  "Insert N copies of STRING at point."
+  (insert (mapconcat #'identity (make-list n string))))
+
 ;;;###autoload
 (defun duplicate-line (&optional n)
   "Duplicate the current line N times.
 Interactively, N is the prefix numeric argument, and defaults to 1.
+The user option `duplicate-line-final-position' specifies where to
+move point after duplicating the line.
 Also see the `copy-from-above-command' command."
   (interactive "p")
   (unless n
     (setq n 1))
-  (let ((line (buffer-substring (line-beginning-position) (line-end-position))))
-    (save-excursion
-      (forward-line 1)
-      (unless (bolp)
-        (insert "\n"))
-      (dotimes (_ n)
-        (insert line "\n")))))
+  (let ((line (concat (buffer-substring (line-beginning-position)
+                                        (line-end-position))
+                      "\n"))
+        (pos (point))
+        (col (current-column)))
+    (forward-line 1)
+    (unless (bolp)
+      (insert "\n"))
+    (duplicate--insert-copies n line)
+    (unless (< duplicate-line-final-position 0)
+      (goto-char pos))
+    (unless (eq duplicate-line-final-position 0)
+      (forward-line duplicate-line-final-position)
+      (move-to-column col))))
 
 (declare-function rectangle--duplicate-right "rect" (n))
 
@@ -109,8 +135,7 @@ Interactively, N is the prefix numeric argument, and defaults to 1."
            (text (buffer-substring beg end)))
       (save-excursion
         (goto-char end)
-        (dotimes (_ n)
-          (insert text))))
+        (duplicate--insert-copies n text)))
     (setq deactivate-mark nil))
 
    ;; Duplicate line.
@@ -166,18 +191,22 @@ is an upper-case character."
     (upcase-region (point) (progn (forward-char arg) (point)))))
 
 ;;;###autoload
-(defun forward-to-word (arg)
-  "Move forward until encountering the beginning of a word.
-With argument, do this that many times."
+(defun forward-to-word (&optional arg)
+  "Move forward until encountering the beginning of the ARGth word.
+ARG defaults to 1.  When called interactively, ARG is the prefix
+numeric argument."
   (interactive "^p")
+  (unless arg (setq arg 1))
   (or (re-search-forward (if (> arg 0) "\\W\\b" "\\b\\W") nil t arg)
       (goto-char (if (> arg 0) (point-max) (point-min)))))
 
 ;;;###autoload
-(defun backward-to-word (arg)
-  "Move backward until encountering the end of a word.
-With argument, do this that many times."
+(defun backward-to-word (&optional arg)
+  "Move backward until encountering the end of the ARGth word.
+ARG defaults to 1.  When called interactively, ARG is the prefix
+numeric argument."
   (interactive "^p")
+  (unless arg (setq arg 1))
   (forward-to-word (- arg)))
 
 ;;;###autoload

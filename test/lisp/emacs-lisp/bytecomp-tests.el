@@ -766,6 +766,20 @@ inner loops respectively."
                         ((eq x 2) (setq y 'c)))
                   (list x y)))))
       (mapcar fn (bytecomp-test-identity '(0 1 2 3 10 11))))
+
+    ;; `nconc' nil arg elimination
+    (nconc (list 1 2 3 4) nil)
+    (nconc (list 1 2 3 4) nil nil)
+    (let ((x (cons 1 (cons 2 (cons 3 4)))))
+      (nconc x nil))
+    (let ((x (cons 1 (cons 2 (cons 3 4)))))
+      (nconc x nil nil))
+    (let ((x (cons 1 (cons 2 (cons 3 4)))))
+      (nconc nil x nil (list 5 6) nil))
+
+    ;; (+ 0 -0.0) etc
+    (let ((x (bytecomp-test-identity -0.0)))
+      (list x (+ x) (+ 0 x) (+ x 0) (+ 1 2 -3 x) (+ 0 x 0)))
     )
   "List of expressions for cross-testing interpreted and compiled code.")
 
@@ -1438,8 +1452,8 @@ literals (Bug#20852)."
    '(defun zot ()
       (mapcar #'list '(1 2 3))
       nil)
-   '((mapcar mapcar))
-   "Warning: .mapcar. called for effect")
+   '((ignored-return-value mapcar))
+   "Warning: value from call to `mapcar' is unused; use `mapc' or `dolist' instead")
 
   (test-suppression
    '(defun zot ()
@@ -1508,6 +1522,36 @@ literals (Bug#20852)."
         ))
    '((empty-body with-suppressed-warnings))
    "Warning: `with-suppressed-warnings' with empty body")
+
+  (test-suppression
+   '(defun zot ()
+      (setcar '(1 2) 3))
+   '((mutate-constant setcar))
+   "Warning: `setcar' on constant list (arg 1)")
+
+  (test-suppression
+   '(defun zot ()
+      (aset [1 2] 1 3))
+   '((mutate-constant aset))
+   "Warning: `aset' on constant vector (arg 1)")
+
+  (test-suppression
+   '(defun zot ()
+      (aset "abc" 1 ?d))
+   '((mutate-constant aset))
+   "Warning: `aset' on constant string (arg 1)")
+
+  (test-suppression
+   '(defun zot (x y)
+      (nconc x y '(1 2) '(3 4)))
+   '((mutate-constant nconc))
+   "Warning: `nconc' on constant list (arg 3)")
+
+  (test-suppression
+   '(defun zot ()
+      (put-text-property 0 2 'prop 'val "abc"))
+   '((mutate-constant put-text-property))
+   "Warning: `put-text-property' on constant string (arg 5)")
   )
 
 (ert-deftest bytecomp-tests--not-writable-directory ()
@@ -1759,11 +1803,11 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
 (TEST-IN-COMMENTS t) (TEST-IN-STRINGS t) (TEST-IN-CODE t) \
 (FIXTURE-FN \\='#\\='electric-pair-mode))" fill-column)))
 
-(defun test-bytecomp-defgroup-choice ()
-  (should-not (byte-compile--suspicious-defcustom-choice 'integer))
-  (should-not (byte-compile--suspicious-defcustom-choice
+(ert-deftest bytecomp-test-defcustom-type-quoted ()
+  (should-not (byte-compile--defcustom-type-quoted 'integer))
+  (should-not (byte-compile--defcustom-type-quoted
                '(choice (const :tag "foo" bar))))
-  (should (byte-compile--suspicious-defcustom-choice
+  (should (byte-compile--defcustom-type-quoted
            '(choice (const :tag "foo" 'bar)))))
 
 (ert-deftest bytecomp-function-attributes ()

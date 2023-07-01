@@ -712,10 +712,10 @@ adjust_frame_size (struct frame *f, int new_text_width, int new_text_height,
 		       ? old_native_height
 		       : max (FRAME_TEXT_TO_PIXEL_HEIGHT (f, new_text_height),
 			      min_inner_height
-			      + FRAME_TOP_MARGIN_HEIGHT (f)
+			      + FRAME_MARGIN_HEIGHT (f)
 			      + 2 * FRAME_INTERNAL_BORDER_WIDTH (f)));
   new_inner_height = (new_native_height
-		      - FRAME_TOP_MARGIN_HEIGHT (f)
+		      - FRAME_MARGIN_HEIGHT (f)
 		      - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
   new_text_height = FRAME_PIXEL_TO_TEXT_HEIGHT (f, new_native_height);
   new_text_lines = new_text_height / unit_height;
@@ -942,11 +942,9 @@ make_frame (bool mini_p)
   f = allocate_frame ();
   XSETFRAME (frame, f);
 
-#ifdef USE_GTK
   /* Initialize Lisp data.  Note that allocate_frame initializes all
      Lisp data to nil, so do it only for slots which should not be nil.  */
   fset_tool_bar_position (f, Qtop);
-#endif
 
   /* Initialize non-Lisp data.  Note that allocate_frame zeroes out all
      non-Lisp data, so do it only for slots which should not be zero.
@@ -1446,6 +1444,10 @@ affects all frames on the same terminal device.  */)
    If FRAME is a switch-frame event `(switch-frame FRAME1)', use
    FRAME1 as frame.
 
+   If TRACK is non-zero and the frame that currently has the focus
+   redirects its focus to the selected frame, redirect that focused
+   frame's focus to FRAME instead.
+
    FOR_DELETION non-zero means that the selected frame is being
    deleted, which includes the possibility that the frame's terminal
    is dead.
@@ -1453,7 +1455,7 @@ affects all frames on the same terminal device.  */)
    The value of NORECORD is passed as argument to Fselect_window.  */
 
 Lisp_Object
-do_switch_frame (Lisp_Object frame, int for_deletion, Lisp_Object norecord)
+do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object norecord)
 {
   struct frame *sf = SELECTED_FRAME (), *f;
 
@@ -1474,6 +1476,44 @@ do_switch_frame (Lisp_Object frame, int for_deletion, Lisp_Object norecord)
     return Qnil;
   else if (f == sf)
     return frame;
+
+  /* If the frame with GUI focus has had it's Emacs focus redirected
+     toward the currently selected frame, we should change the
+     redirection to point to the newly selected frame.  This means
+     that if the focus is redirected from a minibufferless frame to a
+     surrogate minibuffer frame, we can use `other-window' to switch
+     between all the frames using that minibuffer frame, and the focus
+     redirection will follow us around.  This code is necessary when
+     we have a minibufferless frame using the MB in another (normal)
+     frame (bug#64152) (ACM, 2023-06-20).  */
+#ifdef HAVE_WINDOW_SYSTEM
+  if (track && FRAME_WINDOW_P (f) && FRAME_TERMINAL (f)->get_focus_frame)
+    {
+      Lisp_Object gfocus; /* The frame which still has focus on the
+			     current terminal, according to the GUI
+			     system. */
+      Lisp_Object focus;  /* The frame to which Emacs has redirected
+			     the focus from `gfocus'.  This might be a
+			     frame with a minibuffer when `gfocus'
+			     doesn't have a MB.  */
+
+      gfocus = FRAME_TERMINAL (f)->get_focus_frame (f);
+      if (FRAMEP (gfocus))
+	{
+	  focus = FRAME_FOCUS_FRAME (XFRAME (gfocus));
+	  if (FRAMEP (focus) && XFRAME (focus) == SELECTED_FRAME ())
+	      /* Redirect frame focus also when FRAME has its minibuffer
+		 window on the selected frame (see Bug#24500).
+
+		 Don't do that: It causes redirection problem with a
+		 separate minibuffer frame (Bug#24803) and problems
+		 when updating the cursor on such frames.
+	      || (NILP (focus)
+		  && EQ (FRAME_MINIBUF_WINDOW (f), sf->selected_window)))  */
+	    Fredirect_frame_focus (gfocus, frame);
+	}
+    }
+#endif /* HAVE_X_WINDOWS */
 
   if (!for_deletion && FRAME_HAS_MINIBUF_P (sf))
     resize_mini_window (XWINDOW (FRAME_MINIBUF_WINDOW (sf)), 1);
@@ -1576,7 +1616,7 @@ This function returns FRAME, or nil if FRAME has been deleted.  */)
     /* Do not select a tooltip frame (Bug#47207).  */
     error ("Cannot select a tooltip frame");
   else
-    return do_switch_frame (frame, 0, norecord);
+    return do_switch_frame (frame, 1, 0, norecord);
 }
 
 DEFUN ("handle-switch-frame", Fhandle_switch_frame,
@@ -1592,7 +1632,7 @@ necessarily represent user-visible input focus.  */)
   kset_prefix_arg (current_kboard, Vcurrent_prefix_arg);
   run_hook (Qmouse_leave_buffer_hook);
 
-  return do_switch_frame (event, 0, Qnil);
+  return do_switch_frame (event, 0, 0, Qnil);
 }
 
 DEFUN ("selected-frame", Fselected_frame, Sselected_frame, 0, 0, 0,
@@ -2159,7 +2199,7 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
 	Fraise_frame (frame1);
 #endif
 
-      do_switch_frame (frame1, 1, Qnil);
+      do_switch_frame (frame1, 0, 1, Qnil);
       sf = SELECTED_FRAME ();
     }
   else
@@ -3731,7 +3771,7 @@ check_frame_pixels (Lisp_Object size, Lisp_Object pixelwise, int item_size)
     item_size = 1;
 
   if (!integer_to_intmax (size, &sz)
-      || INT_MULTIPLY_WRAPV (sz, item_size, &pixel_size))
+      || ckd_mul (&pixel_size, sz, item_size))
     args_out_of_range_3 (size, make_int (INT_MIN / item_size),
 			 make_int (INT_MAX / item_size));
 

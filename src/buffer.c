@@ -50,6 +50,14 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "w32heap.h"		/* for mmap_* */
 #endif
 
+/* Work around GCC bug 109847
+   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=109847
+   which causes GCC to mistakenly complain about
+   AUTO_STRING with "*scratch*".  */
+#if GNUC_PREREQ (13, 0, 0)
+# pragma GCC diagnostic ignored "-Wanalyzer-out-of-bounds"
+#endif
+
 /* This structure holds the default values of the buffer-local variables
    defined with DEFVAR_PER_BUFFER, that have special slots in each buffer.
    The default value occupies the same slot in this structure
@@ -1307,7 +1315,7 @@ buffer_local_value (Lisp_Object variable, Lisp_Object buffer)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: result = SYMBOL_VAL (sym); break;
     case SYMBOL_LOCALIZED:
       { /* Look in local_var_alist.  */
@@ -2386,6 +2394,7 @@ Any narrowing restriction in effect (see `narrow-to-region') is removed,
 so the buffer is truly empty after this.  */)
   (void)
 {
+  labeled_restrictions_remove_in_current_buffer ();
   Fwiden ();
 
   del_range (BEG, Z);
@@ -3334,7 +3343,7 @@ record_overlay_string (struct sortstrlist *ssl, Lisp_Object str,
   else
     nbytes = SBYTES (str);
 
-  if (INT_ADD_WRAPV (ssl->bytes, nbytes, &nbytes))
+  if (ckd_add (&nbytes, nbytes, ssl->bytes))
     memory_full (SIZE_MAX);
   ssl->bytes = nbytes;
 
@@ -3348,7 +3357,7 @@ record_overlay_string (struct sortstrlist *ssl, Lisp_Object str,
       else
 	nbytes = SBYTES (str2);
 
-      if (INT_ADD_WRAPV (ssl->bytes, nbytes, &nbytes))
+      if (ckd_add (&nbytes, nbytes, ssl->bytes))
 	memory_full (SIZE_MAX);
       ssl->bytes = nbytes;
     }
@@ -3420,7 +3429,7 @@ overlay_strings (ptrdiff_t pos, struct window *w, unsigned char **pstr)
       unsigned char *p;
       ptrdiff_t total;
 
-      if (INT_ADD_WRAPV (overlay_heads.bytes, overlay_tails.bytes, &total))
+      if (ckd_add (&total, overlay_heads.bytes, overlay_tails.bytes))
 	memory_full (SIZE_MAX);
       if (total > overlay_str_len)
 	overlay_str_buf = xpalloc (overlay_str_buf, &overlay_str_len,

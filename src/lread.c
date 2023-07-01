@@ -2255,6 +2255,7 @@ readevalloop (Lisp_Object readcharfun,
 	  record_unwind_protect_excursion ();
 	  /* Save ZV in it.  */
 	  record_unwind_protect (save_restriction_restore, save_restriction_save ());
+	  labeled_restrictions_remove_in_current_buffer ();
 	  /* Those get unbound after we read one expression.  */
 
 	  /* Set point and ZV around stuff to be read.  */
@@ -2639,12 +2640,6 @@ character_name_to_code (char const *name, ptrdiff_t name_len,
    Unicode 9.0.0 the maximum is 83, so this should be safe.  */
 enum { UNICODE_CHARACTER_NAME_LENGTH_BOUND = 200 };
 
-static AVOID
-invalid_escape_syntax_error (void)
-{
-  error ("Invalid escape character syntax");
-}
-
 /* Read a character escape sequence, assuming we just read a backslash
    and one more character (next_char).  */
 static int
@@ -2676,7 +2671,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 
     case '\n':
       /* ?\LF is an error; it's probably a user mistake.  */
-      error ("Invalid escape character syntax");
+      error ("Invalid escape char syntax: \\<newline>");
 
     /* \M-x etc: set modifier bit and parse the char to which it applies,
        allowing for chains such as \M-\S-\A-\H-\s-\C-q.  */
@@ -2700,7 +2695,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 	      }
 	    else
 	      /* \M, \S, \H, \A not followed by a hyphen is an error.  */
-	      invalid_escape_syntax_error ();
+	      error ("Invalid escape char syntax: \\%c not followed by -", c);
 	  }
 	modifiers |= mod;
 	c1 = READCHAR;
@@ -2720,7 +2715,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
       {
 	int c1 = READCHAR;
 	if (c1 != '-')
-	  invalid_escape_syntax_error ();
+	  error ("Invalid escape char syntax: \\%c not followed by -", c);
       }
       FALLTHROUGH;
     /* The prefixes \C- and \^ are equivalent.  */
@@ -2785,7 +2780,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 	  }
 
 	if (count == 0)
-	  invalid_escape_syntax_error ();
+	  error ("Invalid escape char syntax: \\x not followed by hex digit");
 	if (count < 3 && i >= 0x80)
 	  i = BYTE8_TO_CHAR (i);
 	modifiers |= i & CHAR_MODIFIER_MASK;
@@ -3293,7 +3288,7 @@ bytecode_from_rev_list (Lisp_Object elems, Lisp_Object readcharfun)
 	     Convert them back to the original unibyte form.  */
 	  vec[COMPILED_BYTECODE] = Fstring_as_unibyte (vec[COMPILED_BYTECODE]);
 	}
-      // Bytecode must be immovable.
+      /* Bytecode must be immovable.  */
       pin_string (vec[COMPILED_BYTECODE]);
     }
 
@@ -3382,8 +3377,8 @@ read_bool_vector (Lisp_Object readcharfun)
 	    invalid_syntax ("#&", readcharfun);
 	  break;
 	}
-      if (INT_MULTIPLY_WRAPV (length, 10, &length)
-	  || INT_ADD_WRAPV (length, c - '0', &length))
+      if (ckd_mul (&length, length, 10)
+	  || ckd_add (&length, length, c - '0'))
 	invalid_syntax ("#&", readcharfun);
     }
 
@@ -3407,8 +3402,9 @@ read_bool_vector (Lisp_Object readcharfun)
 }
 
 /* Skip (and optionally remember) a lazily-loaded string
-   preceded by "#@".  */
-static void
+   preceded by "#@".  Return true if this was a normal skip,
+   false if we read #@00 (which skips to EOB/EOF).  */
+static bool
 skip_lazy_string (Lisp_Object readcharfun)
 {
   ptrdiff_t nskip = 0;
@@ -3428,15 +3424,15 @@ skip_lazy_string (Lisp_Object readcharfun)
 	    UNREAD (c);
 	  break;
 	}
-      if (INT_MULTIPLY_WRAPV (nskip, 10, &nskip)
-	  || INT_ADD_WRAPV (nskip, c - '0', &nskip))
+      if (ckd_mul (&nskip, nskip, 10)
+	  || ckd_add (&nskip, nskip, c - '0'))
 	invalid_syntax ("#@", readcharfun);
       digits++;
       if (digits == 2 && nskip == 0)
 	{
-	  /* #@00 means "skip to end" */
+	  /* #@00 means "read nil and skip to end" */
 	  skip_dyn_eof (readcharfun);
-	  return;
+	  return false;
 	}
     }
 
@@ -3483,6 +3479,8 @@ skip_lazy_string (Lisp_Object readcharfun)
   else
     /* Skip that many bytes.  */
     skip_dyn_bytes (readcharfun, nskip);
+
+  return true;
 }
 
 /* Given a lazy-loaded string designator VAL, return the actual string.
@@ -3940,8 +3938,10 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 	    /* #@NUMBER is used to skip NUMBER following bytes.
 	       That's used in .elc files to skip over doc strings
 	       and function definitions that can be loaded lazily.  */
-	    skip_lazy_string (readcharfun);
-	    goto read_obj;
+	    if (skip_lazy_string (readcharfun))
+	      goto read_obj;
+	    obj = Qnil;	      /* #@00 skips to EOB/EOF and yields nil.  */
+	    break;
 
 	  case '$':
 	    /* #$ -- reference to lazy-loaded string */
@@ -3993,8 +3993,8 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 		    c = READCHAR;
 		    if (c < '0' || c > '9')
 		      break;
-		    if (INT_MULTIPLY_WRAPV (n, 10, &n)
-			|| INT_ADD_WRAPV (n, c - '0', &n))
+		    if (ckd_mul (&n, n, 10)
+			|| ckd_add (&n, n, c - '0'))
 		      invalid_syntax ("#", readcharfun);
 		  }
 		if (c == 'r' || c == 'R')
