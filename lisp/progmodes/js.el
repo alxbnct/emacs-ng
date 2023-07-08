@@ -106,7 +106,7 @@ name.")
 
 (defconst js--plain-method-re
   (concat "^\\s-*?\\(" js--dotted-name-re "\\)\\.prototype"
-          "\\.\\(" js--name-re "\\)\\s-*?=\\s-*?\\(\\(:?async[ \t\n]+\\)function\\)\\_>")
+          "\\.\\(" js--name-re "\\)\\s-*?=\\s-*?\\(\\(?:async[ \t\n]+\\)function\\)\\_>")
   "Regexp matching an explicit JavaScript prototype \"method\" declaration.
 Group 1 is a (possibly-dotted) class name, group 2 is a method name,
 and group 3 is the `function' keyword.")
@@ -1024,38 +1024,45 @@ Return the pitem of the function we went to the beginning of."
   "Helper function for `js-beginning-of-defun'."
   (let ((pstate (js--beginning-of-defun-raw)))
     (when pstate
-      (goto-char (js--pitem-h-begin (car pstate))))))
+      (goto-char (js--pitem-h-begin (car pstate)))
+      t)))
 
 (defun js-beginning-of-defun (&optional arg)
   "Value of `beginning-of-defun-function' for `js-mode'."
   (setq arg (or arg 1))
-  (while (and (not (eobp)) (< arg 0))
-    (cl-incf arg)
-    (when (and (not js-flat-functions)
-               (or (eq (js-syntactic-context) 'function)
-                   (js--function-prologue-beginning)))
-      (js-end-of-defun))
+  (let ((found))
+    (while (and (not (eobp)) (< arg 0))
+      (cl-incf arg)
+      (when (and (not js-flat-functions)
+                 (or (eq (js-syntactic-context) 'function)
+                     (js--function-prologue-beginning)))
+        (js-end-of-defun))
 
-    (if (js--re-search-forward
-         "\\_<function\\_>" nil t)
-        (goto-char (js--function-prologue-beginning))
-      (goto-char (point-max))))
+      (if (js--re-search-forward
+           "\\_<function\\_>" nil t)
+          (progn (goto-char (js--function-prologue-beginning))
+                 (setq found t))
+        (goto-char (point-max))
+        (setq found nil)))
 
-  (while (> arg 0)
-    (cl-decf arg)
-    ;; If we're just past the end of a function, the user probably wants
-    ;; to go to the beginning of *that* function
-    (when (eq (char-before) ?})
-      (backward-char))
+    (while (> arg 0)
+      (cl-decf arg)
+      ;; If we're just past the end of a function, the user probably wants
+      ;; to go to the beginning of *that* function
+      (when (eq (char-before) ?})
+        (backward-char))
 
-    (let ((prologue-begin (js--function-prologue-beginning)))
-      (cond ((and prologue-begin (< prologue-begin (point)))
-             (goto-char prologue-begin))
+      (let ((prologue-begin (js--function-prologue-beginning)))
+        (cond ((and prologue-begin (< prologue-begin (point)))
+               (goto-char prologue-begin)
+               (setq found t))
 
-            (js-flat-functions
-             (js--beginning-of-defun-flat))
-            (t
-             (js--beginning-of-defun-nested))))))
+              (js-flat-functions
+               (setq found (js--beginning-of-defun-flat)))
+              (t
+               (when (js--beginning-of-defun-nested)
+                 (setq found t))))))
+    found))
 
 (defun js--flush-caches (&optional beg _ignored)
   "Flush the `js-mode' syntax cache after position BEG.
@@ -3493,7 +3500,7 @@ This function is intended for use in `after-change-functions'."
    :language 'javascript
    :feature 'constant
    '(((identifier) @font-lock-constant-face
-      (:match "^[A-Z_][A-Z_\\d]*$" @font-lock-constant-face))
+      (:match "\\`[A-Z_][0-9A-Z_]*\\'" @font-lock-constant-face))
 
      [(true) (false) (null)] @font-lock-constant-face)
 
@@ -3612,7 +3619,7 @@ This function is intended for use in `after-change-functions'."
    :feature 'number
    '((number) @font-lock-number-face
      ((identifier) @font-lock-number-face
-      (:match "^\\(:?NaN\\|Infinity\\)$" @font-lock-number-face)))
+      (:match "\\`\\(?:NaN\\|Infinity\\)\\'" @font-lock-number-face)))
 
    :language 'javascript
    :feature 'operator

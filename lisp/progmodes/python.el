@@ -415,7 +415,6 @@ instead."
   "Python mode specialized rx macro.
 This variant of `rx' supports common Python named REGEXPS."
   `(rx-let ((sp-bsnl (or space (and ?\\ ?\n)))
-            (sp-nl (or space (and (? ?\\) ?\n)))
             (block-start       (seq symbol-start
                                     (or "def" "class" "if" "elif" "else" "try"
                                         "except" "finally" "for" "while" "with"
@@ -650,9 +649,9 @@ the {...} holes that appear within f-strings."
              finally return (and result-valid result))))
 
 (defvar python-font-lock-keywords-level-1
-  `((,(python-rx symbol-start "def" (1+ sp-bsnl) (group symbol-name))
+  `((,(python-rx symbol-start "def" (1+ space) (group symbol-name))
      (1 font-lock-function-name-face))
-    (,(python-rx symbol-start "class" (1+ sp-bsnl) (group symbol-name))
+    (,(python-rx symbol-start "class" (1+ space) (group symbol-name))
      (1 font-lock-type-face)))
   "Font lock keywords to use in `python-mode' for level 1 decoration.
 
@@ -792,12 +791,12 @@ sign in chained assignment."
     ;;   [*a] = 5, 6
     ;; are handled separately below
     (,(python-font-lock-assignment-matcher
-        (python-rx (? (or "[" "(") (* sp-nl))
-                   grouped-assignment-target (* sp-nl) ?, (* sp-nl)
-                   (* assignment-target (* sp-nl) ?, (* sp-nl))
-                   (? assignment-target (* sp-nl))
-                   (? ?, (* sp-nl))
-                   (? (or ")" "]") (* sp-bsnl))
+        (python-rx (? (or "[" "(") (* space))
+                   grouped-assignment-target (* space) ?, (* space)
+                   (* assignment-target (* space) ?, (* space))
+                   (? assignment-target (* space))
+                   (? ?, (* space))
+                   (? (or ")" "]") (* space))
                    (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face)
@@ -813,9 +812,9 @@ sign in chained assignment."
     ;;   c: Collection = {1, 2, 3}
     ;;   d: Mapping[int, str] = {1: 'bar', 2: 'baz'}
     (,(python-font-lock-assignment-matcher
-       (python-rx (or line-start ?\;) (* sp-bsnl)
-                  grouped-assignment-target (* sp-bsnl)
-                  (? ?: (* sp-bsnl) (+ not-simple-operator) (* sp-bsnl))
+       (python-rx (or line-start ?\;) (* space)
+                  grouped-assignment-target (* space)
+                  (? ?: (* space) (+ not-simple-operator) (* space))
                   (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face))
@@ -824,10 +823,10 @@ sign in chained assignment."
     ;;   [a] = 5,
     ;;   [*a] = 5, 6
     (,(python-font-lock-assignment-matcher
-       (python-rx (or line-start ?\; ?=) (* sp-bsnl)
-                  (or "[" "(") (* sp-nl)
-                  grouped-assignment-target (* sp-nl)
-                  (or ")" "]") (* sp-bsnl)
+       (python-rx (or line-start ?\; ?=) (* space)
+                  (or "[" "(") (* space)
+                  grouped-assignment-target (* space)
+                  (or ")" "]") (* space)
                   (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face))
@@ -868,18 +867,6 @@ decorators, exceptions, and assignments.")
 
 Which one will be chosen depends on the value of
 `font-lock-maximum-decoration'.")
-
-(defun python-font-lock-extend-region (beg end _old-len)
-  "Extend font-lock region given by BEG and END to statement boundaries."
-  (save-excursion
-    (save-match-data
-      (goto-char beg)
-      (python-nav-beginning-of-statement)
-      (setq beg (point))
-      (goto-char end)
-      (python-nav-end-of-statement)
-      (setq end (point))
-      (cons beg end))))
 
 
 (defconst python-syntax-propertize-function
@@ -1119,7 +1106,7 @@ fontified."
    :language 'python
    `([,@python--treesit-keywords] @font-lock-keyword-face
      ((identifier) @font-lock-keyword-face
-      (:match "^self$" @font-lock-keyword-face)))
+      (:match "\\`self\\'" @font-lock-keyword-face)))
 
    :feature 'definition
    :language 'python
@@ -1265,10 +1252,58 @@ For NODE, OVERRIDE, START, END, and ARGS, see
   :type '(repeat symbol))
 
 (defcustom python-indent-def-block-scale 2
-  "Multiplier applied to indentation inside multi-line def blocks."
+  "Multiplier applied to indentation inside multi-line blocks.
+The indentation in parens in the block header will be the current
+indentation plus `python-indent-offset' multiplied by this
+variable.  For example, the arguments are indented as follows if
+this variable is 1:
+
+    def do_something(
+        arg1,
+        arg2):
+        print('hello')
+
+if this variable is 2 (default):
+
+    def do_something(
+            arg1,
+            arg2):
+        print('hello')
+
+This variable has an effect on all blocks, not just def block.
+This variable only works if the opening paren is not followed by
+non-whitespace characters on the same line.  Modify
+`python-indent-block-paren-deeper' to customize the case where
+non-whitespace characters follow the opening paren on the same
+line."
   :version "26.1"
   :type 'integer
   :safe 'natnump)
+
+(defcustom python-indent-block-paren-deeper nil
+  "Increase indentation inside parens of a block.
+If non-nil, increase the indentation of the lines inside parens
+in a header of a block when they are indented to the same level
+as the body of the block:
+
+    if (some_expression
+            and another_expression):
+        do_something()
+
+instead of:
+
+    if (some_expression
+        and another_expression):
+        do_something()
+
+This variable only works if the opening paren is followed by
+non-whitespace characters on the same line.  Modify
+`python-indent-def-block-scale' to customize the case where
+non-whitespace character does not follow the opening paren on the
+same line."
+  :version "30.1"
+  :type 'boolean
+  :safe 'booleanp)
 
 (defvar python-indent-current-level 0
   "Deprecated var available for compatibility.")
@@ -1367,6 +1402,14 @@ keyword
  - Point is inside a paren with items starting in their own line
    from a block start.
  - START is the position of the open paren.
+:inside-paren-from-block
+ - Point is inside a paren from a block start followed by some
+   items on the same line.
+ - START is the first non space char position *after* the open paren.
+:inside-paren-continuation-line
+ - Point is on a continuation line inside a paren.
+ - START is the position where the previous line (excluding lines
+   for inner parens) starts.
 
 :after-backslash
  - Fallback case when point is after backslash.
@@ -1421,7 +1464,21 @@ keyword
                      (= (line-number-at-pos)
                         (progn
                           (python-util-forward-comment)
-                          (line-number-at-pos))))))))
+                          (line-number-at-pos)))))))
+               (continuation-start
+                (when start
+                  (save-excursion
+                    (forward-line -1)
+                    (back-to-indentation)
+                    ;; Skip inner parens.
+                    (cl-loop with prev-start = (python-syntax-context 'paren)
+                             while (and prev-start (>= prev-start start))
+                             if (= prev-start start)
+                             return (point)
+                             else do (goto-char prev-start)
+                                     (back-to-indentation)
+                                     (setq prev-start
+                                           (python-syntax-context 'paren)))))))
           (when start
             (cond
              ;; Current line only holds the closing paren.
@@ -1437,6 +1494,9 @@ keyword
                 (back-to-indentation)
                 (python-syntax-closing-paren-p))
               (cons :inside-paren-at-closing-nested-paren start))
+             ;; This line is a continuation of the previous line.
+             (continuation-start
+              (cons :inside-paren-continuation-line continuation-start))
              ;; This line starts from an opening block in its own line.
              ((save-excursion
                 (goto-char start)
@@ -1450,12 +1510,16 @@ keyword
              (starts-in-newline
               (cons :inside-paren-newline-start start))
              ;; General case.
-             (t (cons :inside-paren
-                      (save-excursion
-                        (goto-char (1+ start))
-                        (skip-syntax-forward "(" 1)
-                        (skip-syntax-forward " ")
-                        (point))))))))
+             (t (let ((after-start (save-excursion
+                               (goto-char (1+ start))
+                               (skip-syntax-forward "(" 1)
+                               (skip-syntax-forward " ")
+                               (point))))
+                  (if (save-excursion
+                        (python-nav-beginning-of-statement)
+                        (python-info-looking-at-beginning-of-block))
+                      (cons :inside-paren-from-block after-start)
+                    (cons :inside-paren after-start))))))))
        ;; After backslash.
        ((let ((start (when (not (python-syntax-comment-or-string-p ppss))
                        (python-info-line-ends-backslash-p
@@ -1548,7 +1612,8 @@ possibilities can be narrowed to specific indentation points."
         (`(,(or :after-line
                 :after-comment
                 :inside-string
-                :after-backslash) . ,start)
+                :after-backslash
+                :inside-paren-continuation-line) . ,start)
          ;; Copy previous indentation.
          (goto-char start)
          (current-indentation))
@@ -1603,7 +1668,17 @@ possibilities can be narrowed to specific indentation points."
         (`(,(or :inside-paren-newline-start-from-block) . ,start)
          (goto-char start)
          (+ (current-indentation)
-            (* python-indent-offset python-indent-def-block-scale))))))
+            (* python-indent-offset python-indent-def-block-scale)))
+        (`(,:inside-paren-from-block . ,start)
+         (goto-char start)
+         (let ((column (current-column)))
+           (if (and python-indent-block-paren-deeper
+                    (= column (+ (save-excursion
+                                   (python-nav-beginning-of-statement)
+                                   (current-indentation))
+                                 python-indent-offset)))
+               (+ column python-indent-offset)
+             column))))))
 
 (defun python-indent--calculate-levels (indentation)
   "Calculate levels list given INDENTATION.
@@ -2654,8 +2729,7 @@ dedicated to the current buffer or its project (if one is found)."
 (defmacro python-shell--add-to-path-with-priority (pathvar paths)
   "Modify PATHVAR and ensure PATHS are added only once at beginning."
   `(dolist (path (reverse ,paths))
-     (cl-delete path ,pathvar :test #'string=)
-     (cl-pushnew path ,pathvar :test #'string=)))
+     (setq ,pathvar (cons path (cl-delete path ,pathvar :test #'string=)))))
 
 (defun python-shell-calculate-pythonpath ()
   "Calculate the PYTHONPATH using `python-shell-extra-pythonpaths'."
@@ -4964,11 +5038,6 @@ the if condition."
                       (not (python-syntax-comment-or-string-p))
                       python-skeleton-autoinsert)))
 
-(defun python--completion-predicate (_ buffer)
-  (provided-mode-derived-p
-   (buffer-local-value 'major-mode buffer)
-   'python-mode))
-
 (defmacro python-skeleton-define (name doc &rest skel)
   "Define a `python-mode' skeleton using NAME DOC and SKEL.
 The skeleton will be bound to python-skeleton-NAME and will
@@ -4977,7 +5046,7 @@ be added to `python-mode-skeleton-abbrev-table'."
   (let* ((name (symbol-name name))
          (function-name (intern (concat "python-skeleton-" name))))
     `(progn
-       (put ',function-name 'completion-predicate #'python--completion-predicate)
+       (function-put ',function-name 'command-modes '(python-base-mode))
        (define-abbrev python-mode-skeleton-abbrev-table
          ,name "" ',function-name :system t)
        (setq python-skeleton-available
@@ -5004,7 +5073,7 @@ The skeleton will be bound to python-skeleton-NAME."
             `(< ,(format "%s:" name) \n \n
                 > _ \n)))
     `(progn
-       (put ',function-name 'completion-predicate #'ignore)
+       (function-put ',function-name 'completion-predicate #'ignore)
        (define-skeleton ,function-name
          ,(or doc
               (format "Auxiliary skeleton for %s statement." name))
@@ -6018,8 +6087,7 @@ point's current `syntax-ppss'."
     (let ((counter 1)
           (indentation (current-indentation))
           (backward-sexp-point)
-          (re (concat "[uU]?[rR]?"
-                      (python-rx string-delimiter))))
+          (re "[uU]?[rR]?[\"']"))
       (when (and
              (not (python-info-assignment-statement-p))
              (looking-at-p re)
@@ -6040,9 +6108,7 @@ point's current `syntax-ppss'."
                                                     backward-sexp-point))
                                      (setq last-backward-sexp-point
                                            backward-sexp-point))
-                                   (looking-at-p
-                                    (concat "[uU]?[rR]?"
-                                            (python-rx string-delimiter))))))
+                                   (looking-at-p re))))
                   ;; Previous sexp was a string, restore point.
                   (goto-char backward-sexp-point)
                   (cl-incf counter))
@@ -6110,7 +6176,8 @@ Optional argument REGEXP selects variables to clone and defaults
 to \"^python-\"."
   (mapc
    (lambda (pair)
-     (and (symbolp (car pair))
+     (and (consp pair)
+          (symbolp (car pair))
           (string-match (or regexp "^python-")
                         (symbol-name (car pair)))
           (set (make-local-variable (car pair))
@@ -6379,8 +6446,14 @@ REPORT-FN is Flymake's callback function."
 
 ;;; Import management
 (defconst python--list-imports "\
-from isort import find_imports_in_stream, find_imports_in_paths
-from sys import argv, stdin
+from sys import argv, exit, stdin
+
+try:
+    from isort import find_imports_in_stream, find_imports_in_paths
+except ModuleNotFoundError:
+    exit(1)
+except ImportError:
+    exit(2)
 
 query, files, result = argv[1] or None, argv[2:], {}
 
@@ -6434,9 +6507,13 @@ recursively."
                                 (or name "")
                                 (mapcar #'file-local-name source)))))
              lines)
-        (unless (eq 0 status)
+        (cond
+         ((eq 1 status)
           (error "%s exited with status %s (maybe isort is missing?)"
                  python-interpreter status))
+         ((eq 2 status)
+          (error "%s exited with status %s (maybe isort version is <5.7.0?)"
+                 python-interpreter status)))
         (goto-char (point-min))
         (while (not (eobp))
 	  (push (buffer-substring-no-properties (point) (pos-eol))
@@ -6479,9 +6556,13 @@ Return non-nil if the buffer was actually modified."
                                nil (list temp nil) nil
                                "-m" "isort" "-" args))
                 (tick (buffer-chars-modified-tick)))
-            (unless (eq 0 status)
+            (cond
+             ((eq 1 status)
               (error "%s exited with status %s (maybe isort is missing?)"
                      python-interpreter status))
+             ((eq 2 status)
+              (error "%s exited with status %s (maybe isort version is <5.7.0?)"
+                     python-interpreter status)))
             (replace-buffer-contents temp)
             (not (eq tick (buffer-chars-modified-tick)))))))))
 
@@ -6694,8 +6775,6 @@ implementations: `python-mode' and `python-ts-mode'."
 
   (setq-local prettify-symbols-alist python-prettify-symbols-alist)
 
-  (python-skeleton-add-menu-items)
-
   (make-local-variable 'python-shell-internal-buffer)
 
   (add-hook 'flymake-diagnostic-functions #'python-flymake nil t))
@@ -6709,15 +6788,15 @@ implementations: `python-mode' and `python-ts-mode'."
               `(,python-font-lock-keywords
                 nil nil nil nil
                 (font-lock-syntactic-face-function
-                 . python-font-lock-syntactic-face-function)
-                (font-lock-extend-after-change-region-function
-                 . python-font-lock-extend-region)))
+                 . python-font-lock-syntactic-face-function)))
   (setq-local syntax-propertize-function
               python-syntax-propertize-function)
   (setq-local imenu-create-index-function
               #'python-imenu-create-index)
 
   (add-hook 'which-func-functions #'python-info-current-defun nil t)
+
+  (python-skeleton-add-menu-items)
 
   (when python-indent-guess-indent-offset
     (python-indent-guess-indent-offset)))
@@ -6745,6 +6824,8 @@ implementations: `python-mode' and `python-ts-mode'."
                 #'python--treesit-defun-name)
     (treesit-major-mode-setup)
 
+    (python-skeleton-add-menu-items)
+
     (when python-indent-guess-indent-offset
       (python-indent-guess-indent-offset))
 
@@ -6752,7 +6833,7 @@ implementations: `python-mode' and `python-ts-mode'."
     (add-to-list 'interpreter-mode-alist '("python[0-9.]*" . python-ts-mode))))
 
 ;;; Completion predicates for M-x
-;; Commands that only make sense when editing Python code
+;; Commands that only make sense when editing Python code.
 (dolist (sym '(python-add-import
                python-check
                python-fill-paragraph
@@ -6786,12 +6867,7 @@ implementations: `python-mode' and `python-ts-mode'."
                python-shell-send-defun
                python-shell-send-statement
                python-sort-imports))
-  (put sym 'completion-predicate #'python--completion-predicate))
-
-(defun python-shell--completion-predicate (_ buffer)
-  (provided-mode-derived-p
-   (buffer-local-value 'major-mode buffer)
-   'python-mode 'inferior-python-mode))
+  (function-put sym 'command-modes '(python-base-mode)))
 
 ;; Commands that only make sense in the Python shell or when editing
 ;; Python code.
@@ -6806,8 +6882,8 @@ implementations: `python-mode' and `python-ts-mode'."
                python-shell-font-lock-turn-off
                python-shell-font-lock-turn-on
                python-shell-package-enable
-               python-shell-completion-complete-or-indent  ))
-  (put sym 'completion-predicate #'python-shell--completion-predicate))
+               python-shell-completion-complete-or-indent))
+  (function-put sym 'command-modes '(python-base-mode inferior-python-mode)))
 
 (provide 'python)
 

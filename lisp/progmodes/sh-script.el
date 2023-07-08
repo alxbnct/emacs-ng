@@ -864,10 +864,13 @@ See `sh-feature'.")
 	   ("\\${?\\([[:alpha:]_][[:alnum:]_]*\\|[0-9]+\\|[$*_]\\)" 1
 	     font-lock-variable-name-face))
     (rpm sh-append rpm2
-	 ("%{?\\(\\sw+\\)"  1 font-lock-keyword-face))
+	 ("^\\s-*%\\(\\sw+\\)" 1 font-lock-keyword-face)
+	 ("%{?\\([!?]*[[:alpha:]_][[:alnum:]_]*\\|[0-9]+\\|[%*#]\\*?\\|!?-[[:alpha:]]\\*?\\)"
+	  1 font-lock-variable-name-face))
     (rpm2 sh-append shell
 	  ("^Summary:\\(.*\\)$" (1 font-lock-doc-face t))
-	  ("^\\(\\sw+\\):"  1 font-lock-variable-name-face)))
+	  ("^\\(\\sw+\\)\\((\\(\\sw+\\))\\)?:" (1 font-lock-variable-name-face)
+	   (3 font-lock-string-face nil t))))
   "Default expressions to highlight in Shell Script modes.  See `sh-feature'.")
 
 (defvar sh-font-lock-keywords-var-1
@@ -1489,6 +1492,7 @@ Return the name of the shell suitable for `sh-set-shell'."
         ((string-match "[.]t?csh\\(rc\\)?\\>" buffer-file-name) "csh")
         ((string-match "[.]zsh\\(rc\\|env\\)?\\>" buffer-file-name) "zsh")
 	((equal (file-name-nondirectory buffer-file-name) ".profile") "sh")
+	((equal (file-name-nondirectory buffer-file-name) "PKGBUILD") "bash")
         (t sh-shell-file)))
 
 ;;;###autoload
@@ -1539,13 +1543,7 @@ implementations.  Currently there are two: `sh-mode' and
               (lambda (terminator)
                 (if (eq terminator ?')
                     "'\\'"
-                  "\\")))
-  ;; Parse or insert magic number for exec, and set all variables depending
-  ;; on the shell thus determined.
-  (sh-set-shell (sh--guess-shell) nil nil)
-  (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
-  (add-hook 'hack-local-variables-hook
-            #'sh-after-hack-local-variables nil t))
+                  "\\"))))
 
 ;;;###autoload
 (define-derived-mode sh-mode sh-base-mode "Shell-script"
@@ -1605,7 +1603,13 @@ with your script for an edit-interpret-debug cycle."
           nil nil
           ((?/ . "w") (?~ . "w") (?. . "w") (?- . "w") (?_ . "w")) nil
           (font-lock-syntactic-face-function
-           . ,#'sh-font-lock-syntactic-face-function))))
+           . ,#'sh-font-lock-syntactic-face-function)))
+  ;; Parse or insert magic number for exec, and set all variables depending
+  ;; on the shell thus determined.
+  (sh-set-shell (sh--guess-shell) nil nil)
+  (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
+  (add-hook 'hack-local-variables-hook
+            #'sh-after-hack-local-variables nil t))
 
 ;;;###autoload
 (defalias 'shell-script-mode 'sh-mode)
@@ -1617,6 +1621,10 @@ This mode automatically falls back to `sh-mode' if the buffer is
 not written in Bash or sh."
   :syntax-table sh-mode-syntax-table
   (when (treesit-ready-p 'bash)
+    (sh-set-shell "bash" nil nil)
+    (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
+    (add-hook 'hack-local-variables-hook
+              #'sh-after-hack-local-variables nil t)
     (treesit-parser-create 'bash)
     (setq-local treesit-font-lock-feature-list
                 '(( comment function)
@@ -3370,7 +3378,7 @@ See `sh-mode--treesit-other-keywords' and
    :feature 'number
    :language 'bash
    `(((word) @font-lock-number-face
-      (:match "^[0-9]+$" @font-lock-number-face)))
+      (:match "\\`[0-9]+\\'" @font-lock-number-face)))
 
    :feature 'bracket
    :language 'bash

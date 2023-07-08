@@ -137,11 +137,11 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (assoc-string "foo" '(("foo" . "bar") ("zot" "baz"))))
   "Manipulating Alists"
   (assoc-delete-all
-   :eval (assoc-delete-all "foo" '(("foo" . "bar") ("zot" . "baz")) #'equal))
+   :eval (assoc-delete-all "b" (list '("a" . a) '("b" . b) '("b" . c))))
   (assq-delete-all
-   :eval (assq-delete-all 'foo '((foo . bar) (zot . baz))))
+   :eval (assq-delete-all 2 (list '(1 . a) '(2 . b) '(2 . c))))
   (rassq-delete-all
-   :eval (rassq-delete-all 'bar '((foo . bar) (zot . baz))))
+   :eval (rassq-delete-all 'b (list '(1 . a) '(2 . b) '(2 . c))))
   (alist-get
    :eval (let ((foo '((bar . baz))))
            (setf (alist-get 'bar foo) 'zot)
@@ -187,8 +187,10 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (format "This number is %d" 4))
   "Manipulating Strings"
   (substring
-   :eval (substring "foobar" 0 3)
-   :eval (substring "foobar" 3))
+   :eval (substring "abcde" 1 3)
+   :eval (substring "abcde" 2)
+   :eval (substring "abcde" 1 -1)
+   :eval (substring "abcde" -4 4))
   (string-limit
    :eval (string-limit "foobar" 3)
    :eval (string-limit "foobar" 3 t)
@@ -705,10 +707,12 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (assoc-default 2 '((1 . a) (2 . b) #'=)))
   (copy-alist
    :eval (copy-alist '((1 . a) (2 . b))))
-  (assq-delete-all
-   :eval (assq-delete-all 2 (list '(1 . a) '(2 . b) '(2 . c))))
   (assoc-delete-all
    :eval (assoc-delete-all "b" (list '("a" . a) '("b" . b) '("b" . c))))
+  (assq-delete-all
+   :eval (assq-delete-all 2 (list '(1 . a) '(2 . b) '(2 . c))))
+  (rassq-delete-all
+   :eval (rassq-delete-all 'b (list '(1 . a) '(2 . b) '(2 . c))))
   "Property Lists"
   (plist-get
    :eval (plist-get '(a 1 b 2 c 3) 'b))
@@ -833,6 +837,8 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (seq-subseq
    :eval (seq-subseq [1 2 3 4 5] 1 3)
    :eval (seq-subseq [1 2 3 4 5] 1))
+  (copy-tree
+   :eval (copy-tree [1 (2 3) [4 5]] t))
   "Mapping Over Vectors"
   (mapcar
    :eval (mapcar #'identity [1 2 3]))
