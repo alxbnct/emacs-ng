@@ -1,7 +1,7 @@
 /* Compile Emacs Lisp into native code.
    Copyright (C) 2019-2023 Free Software Foundation, Inc.
 
-Author: Andrea Corallo <akrl@sdf.org>
+Author: Andrea Corallo <acorallo@gnu.org>
 
 This file is part of GNU Emacs.
 
@@ -5199,17 +5199,9 @@ maybe_defer_native_compilation (Lisp_Object function_name,
 
   Fputhash (function_name, definition, Vcomp_deferred_pending_h);
 
-  /* This is so deferred compilation is able to compile comp
-     dependencies breaking circularity.  */
-  if (comp__compilable)
-    {
-      /* Startup is done, comp is usable.  */
-      CALL0I (startup--require-comp-safely);
-      CALLN (Ffuncall, intern_c_string ("native--compile-async"),
-	     src, Qnil, Qlate);
-    }
-  else
-    Vcomp__delayed_sources = Fcons (src, Vcomp__delayed_sources);
+  pending_funcalls
+    = Fcons (list (Qnative__compile_async, src, Qnil, Qlate),
+             pending_funcalls);
 }
 
 
@@ -5674,13 +5666,6 @@ void
 syms_of_comp (void)
 {
 #ifdef HAVE_NATIVE_COMP
-  DEFVAR_LISP ("comp--delayed-sources", Vcomp__delayed_sources,
-    doc: /* List of sources to be native-compiled when startup is finished.
-For internal use.  */);
-  DEFVAR_BOOL ("comp--compilable", comp__compilable,
-    doc: /* Non-nil when comp.el can be native compiled.
-For internal use. */);
-  /* Compiler control customizes.  */
   DEFVAR_BOOL ("native-comp-jit-compilation", native_comp_jit_compilation,
     doc: /* If non-nil, compile loaded .elc files asynchronously.
 
@@ -5798,6 +5783,8 @@ natively-compiled one.  */);
         build_pure_c_string ("eln file inconsistent with current runtime "
 			     "configuration, please recompile"));
 
+  DEFSYM (Qnative__compile_async, "native--compile-async");
+
   defsubr (&Scomp__subr_signature);
   defsubr (&Scomp_el_to_eln_rel_filename);
   defsubr (&Scomp_el_to_eln_filename);
@@ -5909,6 +5896,14 @@ For internal use.  */);
     doc: /* Hash table recording all loaded compilation units, file -> CU.  */);
   Vcomp_loaded_comp_units_h =
     CALLN (Fmake_hash_table, QCweakness, Qvalue, QCtest, Qequal);
+
+  DEFVAR_LISP ("comp-subr-arities-h", Vcomp_subr_arities_h,
+    doc: /* Hash table recording the arity of Lisp primitives.
+This is in case they are redefined so the compiler still knows how to
+compile calls to them.
+subr-name -> arity
+For internal use.  */);
+  Vcomp_subr_arities_h = CALLN (Fmake_hash_table, QCtest, Qequal);
 
   Fprovide (intern_c_string ("native-compile"), Qnil);
 #endif /* #ifdef HAVE_NATIVE_COMP */
