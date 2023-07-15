@@ -766,6 +766,20 @@ inner loops respectively."
                         ((eq x 2) (setq y 'c)))
                   (list x y)))))
       (mapcar fn (bytecomp-test-identity '(0 1 2 3 10 11))))
+
+    ;; `nconc' nil arg elimination
+    (nconc (list 1 2 3 4) nil)
+    (nconc (list 1 2 3 4) nil nil)
+    (let ((x (cons 1 (cons 2 (cons 3 4)))))
+      (nconc x nil))
+    (let ((x (cons 1 (cons 2 (cons 3 4)))))
+      (nconc x nil nil))
+    (let ((x (cons 1 (cons 2 (cons 3 4)))))
+      (nconc nil x nil (list 5 6) nil))
+
+    ;; (+ 0 -0.0) etc
+    (let ((x (bytecomp-test-identity -0.0)))
+      (list x (+ x) (+ 0 x) (+ x 0) (+ 1 2 -3 x) (+ 0 x 0)))
     )
   "List of expressions for cross-testing interpreted and compiled code.")
 
@@ -1438,8 +1452,8 @@ literals (Bug#20852)."
    '(defun zot ()
       (mapcar #'list '(1 2 3))
       nil)
-   '((mapcar mapcar))
-   "Warning: .mapcar. called for effect")
+   '((ignored-return-value mapcar))
+   "Warning: value from call to `mapcar' is unused; use `mapc' or `dolist' instead")
 
   (test-suppression
    '(defun zot ()
@@ -1508,6 +1522,36 @@ literals (Bug#20852)."
         ))
    '((empty-body with-suppressed-warnings))
    "Warning: `with-suppressed-warnings' with empty body")
+
+  (test-suppression
+   '(defun zot ()
+      (setcar '(1 2) 3))
+   '((mutate-constant setcar))
+   "Warning: `setcar' on constant list (arg 1)")
+
+  (test-suppression
+   '(defun zot ()
+      (aset [1 2] 1 3))
+   '((mutate-constant aset))
+   "Warning: `aset' on constant vector (arg 1)")
+
+  (test-suppression
+   '(defun zot ()
+      (aset "abc" 1 ?d))
+   '((mutate-constant aset))
+   "Warning: `aset' on constant string (arg 1)")
+
+  (test-suppression
+   '(defun zot (x y)
+      (nconc x y '(1 2) '(3 4)))
+   '((mutate-constant nconc))
+   "Warning: `nconc' on constant list (arg 3)")
+
+  (test-suppression
+   '(defun zot ()
+      (put-text-property 0 2 'prop 'val "abc"))
+   '((mutate-constant put-text-property))
+   "Warning: `put-text-property' on constant string (arg 5)")
   )
 
 (ert-deftest bytecomp-tests--not-writable-directory ()
@@ -1759,11 +1803,11 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
 (TEST-IN-COMMENTS t) (TEST-IN-STRINGS t) (TEST-IN-CODE t) \
 (FIXTURE-FN \\='#\\='electric-pair-mode))" fill-column)))
 
-(defun test-bytecomp-defgroup-choice ()
-  (should-not (byte-compile--suspicious-defcustom-choice 'integer))
-  (should-not (byte-compile--suspicious-defcustom-choice
+(ert-deftest bytecomp-test-defcustom-type-quoted ()
+  (should-not (byte-compile--defcustom-type-quoted 'integer))
+  (should-not (byte-compile--defcustom-type-quoted
                '(choice (const :tag "foo" bar))))
-  (should (byte-compile--suspicious-defcustom-choice
+  (should (byte-compile--defcustom-type-quoted
            '(choice (const :tag "foo" 'bar)))))
 
 (ert-deftest bytecomp-function-attributes ()
@@ -1884,6 +1928,64 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
                       " "
                       "#4=(a #5=(#4# b . #6=(#5# c . #4#)) (#6# d))"
                       ")"))))))
+
+(require 'backtrace)
+
+(defun bytecomp-tests--error-frame (fun args)
+  "Call FUN with ARGS.  Return result or (ERROR . BACKTRACE-FRAME)."
+  (let* ((debugger
+          (lambda (&rest args)
+            ;; Make sure Emacs doesn't think our debugger is buggy.
+            (cl-incf num-nonmacro-input-events)
+            (throw 'bytecomp-tests--backtrace
+                   (cons args (cadr (backtrace-get-frames debugger))))))
+         (debug-on-error t)
+         (backtrace-on-error-noninteractive nil)
+         (debug-on-quit t)
+         (debug-ignored-errors nil))
+    (catch 'bytecomp-tests--backtrace
+      (apply fun args))))
+
+(defconst bytecomp-tests--byte-op-error-cases
+  '(((car a) (wrong-type-argument listp a))
+    ((cdr 3) (wrong-type-argument listp 3))
+    ((setcar 4 b) (wrong-type-argument consp 4))
+    ((setcdr c 5) (wrong-type-argument consp c))
+    ((nth 2 "abcd") (wrong-type-argument listp "abcd"))
+    ((elt (x y . z) 2) (wrong-type-argument listp z))
+    ;; Many more to add
+    ))
+
+(ert-deftest bytecomp--byte-op-error-backtrace ()
+  "Check that signalling byte ops show up in the backtrace."
+  (dolist (case bytecomp-tests--byte-op-error-cases)
+    (ert-info ((prin1-to-string case) :prefix "case: ")
+      (let* ((call (nth 0 case))
+             (expected-error (nth 1 case))
+             (fun-sym (car call))
+             (actuals (cdr call)))
+        ;; Test both calling the function directly, and calling
+        ;; a byte-compiled η-expansion (lambda (ARGS...) (FUN ARGS...))
+        ;; which should turn the function call into a byte-op.
+        (dolist (byte-op '(nil t))
+          (ert-info ((prin1-to-string byte-op) :prefix "byte-op: ")
+            (let* ((fun
+                    (if byte-op
+                        (let* ((nargs (length (cdr call)))
+                               (formals (mapcar (lambda (i)
+                                                  (intern (format "x%d" i)))
+                                                (number-sequence 1 nargs))))
+                          (byte-compile
+                           `(lambda ,formals (,fun-sym ,@formals))))
+                      fun-sym))
+                   (error-frame (bytecomp-tests--error-frame fun actuals)))
+              (should (consp error-frame))
+              (should (equal (car error-frame) (list 'error expected-error)))
+              (let ((frame (cdr error-frame)))
+                (should (equal (type-of frame) 'backtrace-frame))
+                (should (equal (cons (backtrace-frame-fun frame)
+                                     (backtrace-frame-args frame))
+                               call))))))))))
 
 ;; Local Variables:
 ;; no-byte-compile: t

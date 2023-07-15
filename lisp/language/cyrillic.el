@@ -126,7 +126,8 @@ Support for Russian using koi8-r and the russian-computer input method.")
 (define-coding-system 'koi8-u
   "KOI8-U 8-bit encoding for Cyrillic (MIME: KOI8-U)"
   :coding-type 'charset
-  :mnemonic ?U
+  ;; This used to be ?U which collided with UTF-8.
+  :mnemonic ?У                          ; CYRILLIC CAPITAL LETTER U
   :charset-list '(koi8-u)
   :mime-charset 'koi8-u)
 
@@ -254,6 +255,16 @@ Support for Russian using koi8-r and the russian-computer input method.")
 		(documentation
 		 . "Support for Belarusian with windows-1251 character set.
 \(The name Belarusian replaced Byelorussian in the early 1990s.)"))
+ '("Cyrillic"))
+
+;; The Mongolian-traditional language environment is in misc-lang.el.
+(set-language-info-alist
+ "Mongolian-cyrillic" '((coding-system utf-8)
+	                (coding-priority utf-8)
+	                (input-method . "cyrillic-mongolian")
+		        (sample-text . "Mongolian (монгол хэл)	Сайн байна уу?")
+	                (documentation
+		         . "Support for Mongolian language with Cyrillic alphabet."))
  '("Cyrillic"))
 
 (provide 'cyrillic)

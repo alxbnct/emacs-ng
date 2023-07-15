@@ -1367,7 +1367,9 @@ Note that the style variables are always made local to the buffer."
 		      (and		;(< (point) end)
 		       (not (nth 3 s))
 		       (c-get-char-property (1- (point)) 'c-fl-syn-tab))
-		    (c-put-char-property pos 'syntax-table '(1)))
+		    (c-put-char-property pos 'syntax-table '(1))
+		    (c-put-char-properties (1+ pos) (c-point 'eol pos)
+					   'syntax-table '(1)))
 		  (setq pos (point)))
 	      (setq pos (1+ pos)))))))))
 
@@ -1384,6 +1386,9 @@ Note that the style variables are always made local to the buffer."
 	   (setq pos
 		 (c-min-property-position pos c-max-syn-tab-mkr 'c-fl-syn-tab))
 	   (< pos c-max-syn-tab-mkr))
+	(when (and (equal (c-get-char-property pos 'syntax-table) '(1))
+		   (equal (c-get-char-property pos 'c-fl-syn-tab) '(15)))
+	  (c-clear-char-properties (1+ pos) (c-point 'eol pos) 'syntax-table))
 	(c-put-char-property pos 'syntax-table
 			     (c-get-char-property pos 'c-fl-syn-tab))
 	(setq pos (1+ pos))))))
@@ -2444,8 +2449,6 @@ with // and /*, not more generic line and block comments."
 			   (setq pseudo (c-cheap-inside-bracelist-p (c-parse-state)))))))
 	       (goto-char pseudo))
 	     t)
-	   (or (> (point) bod-lim)
-	       (eq bod-lim (point-min)))
 	   ;; Move forward to the start of the next declaration.
 	   (progn (c-forward-syntactic-ws)
 		  ;; Have we got stuck in a comment at EOB?
@@ -2861,7 +2864,7 @@ Key bindings:
                                      "\\|" id "::"
                                      "\\|" id ws-maybe "=\\)"
               "\\|" "\\(?:inline" ws "\\)?namespace"
-                    "\\(:?" ws "\\(?:" id "::\\)*" id "\\)?" ws-maybe "{"
+                    "\\(?:" ws "\\(?:" id "::\\)*" id "\\)?" ws-maybe "{"
               "\\|" "class"     ws id
                     "\\(?:" ws "final" "\\)?" ws-maybe "[:{;\n]"
               "\\|" "struct"     ws id "\\(?:" ws "final" ws-maybe "[:{\n]"

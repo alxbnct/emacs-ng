@@ -989,7 +989,7 @@ static void
 coding_alloc_by_realloc (struct coding_system *coding, ptrdiff_t bytes)
 {
   ptrdiff_t newbytes;
-  if (INT_ADD_WRAPV (coding->dst_bytes, bytes, &newbytes)
+  if (ckd_add (&newbytes, coding->dst_bytes, bytes)
       || SIZE_MAX < newbytes)
     string_overflow ();
   coding->destination = xrealloc (coding->destination, newbytes);
@@ -7059,9 +7059,8 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 		{
 		  eassert (growable_destination (coding));
 		  ptrdiff_t dst_size;
-		  if (INT_MULTIPLY_WRAPV (to_nchars, MAX_MULTIBYTE_LENGTH,
-					  &dst_size)
-		      || INT_ADD_WRAPV (buf_end - buf, dst_size, &dst_size))
+		  if (ckd_mul (&dst_size, to_nchars, MAX_MULTIBYTE_LENGTH)
+		      || ckd_add (&dst_size, dst_size, buf_end - buf))
 		    memory_full (SIZE_MAX);
 		  dst = alloc_destination (coding, dst_size, dst);
 		  if (EQ (coding->src_object, coding->dst_object))
@@ -11453,7 +11452,18 @@ usage: (define-coding-system-internal ...)  */)
 
 DEFUN ("coding-system-put", Fcoding_system_put, Scoding_system_put,
        3, 3, 0,
-       doc: /* Change value in CODING-SYSTEM's property list PROP to VAL.  */)
+       doc: /* Change value of CODING-SYSTEM's property PROP to VAL.
+
+The following properties, if set by this function, override the values
+of the corresponding attributes set by `define-coding-system':
+
+  `:mnemonic', `:default-char', `:ascii-compatible-p'
+  `:decode-translation-table', `:encode-translation-table',
+  `:post-read-conversion', `:pre-write-conversion'
+
+See `define-coding-system' for the description of these properties.
+See `coding-system-get' and `coding-system-plist' for accessing the
+property list of a coding-system.  */)
   (Lisp_Object coding_system, Lisp_Object prop, Lisp_Object val)
 {
   Lisp_Object spec, attrs;

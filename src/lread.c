@@ -75,6 +75,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 # ifndef INFINITY
 #  define INFINITY ((union ieee754_double) {.ieee = {.exponent = -1}}.d)
 # endif
+#else
+# ifndef INFINITY
+#  define INFINITY HUGE_VAL
+# endif
 #endif
 
 /* The objects or placeholders read with the #n=object form.
@@ -2255,6 +2259,7 @@ readevalloop (Lisp_Object readcharfun,
 	  record_unwind_protect_excursion ();
 	  /* Save ZV in it.  */
 	  record_unwind_protect (save_restriction_restore, save_restriction_save ());
+	  labeled_restrictions_remove_in_current_buffer ();
 	  /* Those get unbound after we read one expression.  */
 
 	  /* Set point and ZV around stuff to be read.  */
@@ -2639,12 +2644,6 @@ character_name_to_code (char const *name, ptrdiff_t name_len,
    Unicode 9.0.0 the maximum is 83, so this should be safe.  */
 enum { UNICODE_CHARACTER_NAME_LENGTH_BOUND = 200 };
 
-static AVOID
-invalid_escape_syntax_error (void)
-{
-  error ("Invalid escape character syntax");
-}
-
 /* Read a character escape sequence, assuming we just read a backslash
    and one more character (next_char).  */
 static int
@@ -2676,7 +2675,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 
     case '\n':
       /* ?\LF is an error; it's probably a user mistake.  */
-      error ("Invalid escape character syntax");
+      error ("Invalid escape char syntax: \\<newline>");
 
     /* \M-x etc: set modifier bit and parse the char to which it applies,
        allowing for chains such as \M-\S-\A-\H-\s-\C-q.  */
@@ -2700,7 +2699,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 	      }
 	    else
 	      /* \M, \S, \H, \A not followed by a hyphen is an error.  */
-	      invalid_escape_syntax_error ();
+	      error ("Invalid escape char syntax: \\%c not followed by -", c);
 	  }
 	modifiers |= mod;
 	c1 = READCHAR;
@@ -2720,7 +2719,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
       {
 	int c1 = READCHAR;
 	if (c1 != '-')
-	  invalid_escape_syntax_error ();
+	  error ("Invalid escape char syntax: \\%c not followed by -", c);
       }
       FALLTHROUGH;
     /* The prefixes \C- and \^ are equivalent.  */
@@ -2785,7 +2784,7 @@ read_char_escape (Lisp_Object readcharfun, int next_char)
 	  }
 
 	if (count == 0)
-	  invalid_escape_syntax_error ();
+	  error ("Invalid escape char syntax: \\x not followed by hex digit");
 	if (count < 3 && i >= 0x80)
 	  i = BYTE8_TO_CHAR (i);
 	modifiers |= i & CHAR_MODIFIER_MASK;
@@ -3293,7 +3292,7 @@ bytecode_from_rev_list (Lisp_Object elems, Lisp_Object readcharfun)
 	     Convert them back to the original unibyte form.  */
 	  vec[COMPILED_BYTECODE] = Fstring_as_unibyte (vec[COMPILED_BYTECODE]);
 	}
-      // Bytecode must be immovable.
+      /* Bytecode must be immovable.  */
       pin_string (vec[COMPILED_BYTECODE]);
     }
 
@@ -3382,8 +3381,8 @@ read_bool_vector (Lisp_Object readcharfun)
 	    invalid_syntax ("#&", readcharfun);
 	  break;
 	}
-      if (INT_MULTIPLY_WRAPV (length, 10, &length)
-	  || INT_ADD_WRAPV (length, c - '0', &length))
+      if (ckd_mul (&length, length, 10)
+	  || ckd_add (&length, length, c - '0'))
 	invalid_syntax ("#&", readcharfun);
     }
 
@@ -3407,8 +3406,9 @@ read_bool_vector (Lisp_Object readcharfun)
 }
 
 /* Skip (and optionally remember) a lazily-loaded string
-   preceded by "#@".  */
-static void
+   preceded by "#@".  Return true if this was a normal skip,
+   false if we read #@00 (which skips to EOB/EOF).  */
+static bool
 skip_lazy_string (Lisp_Object readcharfun)
 {
   ptrdiff_t nskip = 0;
@@ -3428,15 +3428,15 @@ skip_lazy_string (Lisp_Object readcharfun)
 	    UNREAD (c);
 	  break;
 	}
-      if (INT_MULTIPLY_WRAPV (nskip, 10, &nskip)
-	  || INT_ADD_WRAPV (nskip, c - '0', &nskip))
+      if (ckd_mul (&nskip, nskip, 10)
+	  || ckd_add (&nskip, nskip, c - '0'))
 	invalid_syntax ("#@", readcharfun);
       digits++;
       if (digits == 2 && nskip == 0)
 	{
-	  /* #@00 means "skip to end" */
+	  /* #@00 means "read nil and skip to end" */
 	  skip_dyn_eof (readcharfun);
-	  return;
+	  return false;
 	}
     }
 
@@ -3483,6 +3483,8 @@ skip_lazy_string (Lisp_Object readcharfun)
   else
     /* Skip that many bytes.  */
     skip_dyn_bytes (readcharfun, nskip);
+
+  return true;
 }
 
 /* Given a lazy-loaded string designator VAL, return the actual string.
@@ -3940,8 +3942,10 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 	    /* #@NUMBER is used to skip NUMBER following bytes.
 	       That's used in .elc files to skip over doc strings
 	       and function definitions that can be loaded lazily.  */
-	    skip_lazy_string (readcharfun);
-	    goto read_obj;
+	    if (skip_lazy_string (readcharfun))
+	      goto read_obj;
+	    obj = Qnil;	      /* #@00 skips to EOB/EOF and yields nil.  */
+	    break;
 
 	  case '$':
 	    /* #$ -- reference to lazy-loaded string */
@@ -3993,8 +3997,8 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 		    c = READCHAR;
 		    if (c < '0' || c > '9')
 		      break;
-		    if (INT_MULTIPLY_WRAPV (n, 10, &n)
-			|| INT_ADD_WRAPV (n, c - '0', &n))
+		    if (ckd_mul (&n, n, 10)
+			|| ckd_add (&n, n, c - '0'))
 		      invalid_syntax ("#", readcharfun);
 		  }
 		if (c == 'r' || c == 'R')
@@ -4477,10 +4481,17 @@ substitute_in_interval (INTERVAL interval, void *arg)
 }
 
 
+#if !IEEE_FLOATING_POINT
+/* Strings that stand in for +NaN, -NaN, respectively.  */
+static Lisp_Object not_a_number[2];
+#endif
+
 /* Convert the initial prefix of STRING to a number, assuming base BASE.
    If the prefix has floating point syntax and BASE is 10, return a
    nearest float; otherwise, if the prefix has integer syntax, return
-   the integer; otherwise, return nil.  If PLEN, set *PLEN to the
+   the integer; otherwise, return nil.  (On antique platforms that lack
+   support for NaNs, if the prefix has NaN syntax return a Lisp object that
+   will provoke an error if used as a number.)  If PLEN, set *PLEN to the
    length of the numeric prefix if there is one, otherwise *PLEN is
    unspecified.  */
 
@@ -4545,7 +4556,6 @@ string_to_number (char const *string, int base, ptrdiff_t *plen)
 		cp++;
 	      while ('0' <= *cp && *cp <= '9');
 	    }
-#if IEEE_FLOATING_POINT
 	  else if (cp[-1] == '+'
 		   && cp[0] == 'I' && cp[1] == 'N' && cp[2] == 'F')
 	    {
@@ -4558,12 +4568,17 @@ string_to_number (char const *string, int base, ptrdiff_t *plen)
 	    {
 	      state |= E_EXP;
 	      cp += 3;
+#if IEEE_FLOATING_POINT
 	      union ieee754_double u
 		= { .ieee_nan = { .exponent = 0x7ff, .quiet_nan = 1,
 				  .mantissa0 = n >> 31 >> 1, .mantissa1 = n }};
 	      value = u.d;
-	    }
+#else
+	      if (plen)
+		*plen = cp - string;
+	      return not_a_number[negative];
 #endif
+	    }
 	  else
 	    cp = ecp;
 	}
@@ -5706,6 +5721,14 @@ that are loaded before your customizations are read!  */);
   DEFSYM (Qbackquote, "`");
   DEFSYM (Qcomma, ",");
   DEFSYM (Qcomma_at, ",@");
+
+#if !IEEE_FLOATING_POINT
+  for (int negative = 0; negative < 2; negative++)
+    {
+      not_a_number[negative] = build_pure_c_string (&"-0.0e+NaN"[!negative]);
+      staticpro (&not_a_number[negative]);
+    }
+#endif
 
   DEFSYM (Qinhibit_file_name_operation, "inhibit-file-name-operation");
   DEFSYM (Qascii_character, "ascii-character");

@@ -52,8 +52,15 @@ they are hidden or highlighted.  This is controlled via the variables
 `erc-current-nick-highlight-type'.  For all these highlighting types,
 you can decide whether the entire message or only the sending nick is
 highlighted."
-  ((add-hook 'erc-insert-modify-hook #'erc-match-message 'append))
-  ((remove-hook 'erc-insert-modify-hook #'erc-match-message)))
+  ((add-hook 'erc-insert-modify-hook #'erc-match-message 50)
+   (add-hook 'erc-mode-hook #'erc-match--modify-invisibility-spec)
+   (unless erc--updating-modules-p
+     (erc-buffer-do #'erc-match--modify-invisibility-spec))
+   (erc--modify-local-map t "C-c C-k" #'erc-go-to-log-matches-buffer))
+  ((remove-hook 'erc-insert-modify-hook #'erc-match-message)
+   (remove-hook 'erc-mode-hook #'erc-match--modify-invisibility-spec)
+   (erc-match--modify-invisibility-spec)
+   (erc--modify-local-map nil "C-c C-k" #'erc-go-to-log-matches-buffer)))
 
 ;; Remaining customizations
 
@@ -226,10 +233,11 @@ for beeping to work."
 		 (const :tag "Don't beep" nil)))
 
 (defcustom erc-text-matched-hook '(erc-log-matches)
-  "Hook run when text matches a given match-type.
-Functions in this hook are passed as arguments:
-\(match-type nick!user@host message) where MATCH-TYPE is a symbol of:
-current-nick, keyword, pal, dangerous-host, fool."
+  "Abnormal hook for visiting text matching a predefined \"type\".
+ERC calls members with the arguments (MATCH-TYPE NUH MESSAGE),
+where MATCH-TYPE is one of the symbols `current-nick', `keyword',
+`pal', `dangerous-host', `fool', and NUH is an `erc-response'
+sender, like bob!~bob@example.org."
   :options '(erc-log-matches erc-hide-fools erc-beep-on-match)
   :type 'hook)
 
@@ -647,21 +655,46 @@ See `erc-log-match-format'."
 					(get-buffer (car buffer-cons))))))
     (switch-to-buffer buffer-name)))
 
-(define-key erc-mode-map "\C-c\C-k" #'erc-go-to-log-matches-buffer)
+(defvar-local erc-match--hide-fools-offset-bounds nil)
 
 (defun erc-hide-fools (match-type _nickuserhost _message)
- "Hide foolish comments.
-This function should be called from `erc-text-matched-hook'."
- (when (eq match-type 'fool)
-   (erc-put-text-properties (point-min) (point-max)
-			    '(invisible intangible)
-			    (current-buffer))))
+  "Hide comments from designated fools."
+  (when (eq match-type 'fool)
+    (erc-match--hide-message)))
+
+(defun erc-match--hide-message ()
+  (progn ; FIXME raise sexp
+    (if erc-match--hide-fools-offset-bounds
+        (let ((beg (point-min))
+              (end (point-max)))
+          (save-restriction
+            (widen)
+            (erc--merge-prop (1- beg) (1- end) 'invisible 'erc-match)))
+      ;; Before ERC 5.6, this also used to add an `intangible'
+      ;; property, but the docs say it's now obsolete.
+      (erc--merge-prop (point-min) (point-max) 'invisible 'erc-match))))
 
 (defun erc-beep-on-match (match-type _nickuserhost _message)
   "Beep when text matches.
 This function is meant to be called from `erc-text-matched-hook'."
   (when (member match-type erc-beep-match-types)
     (beep)))
+
+(defun erc-match--modify-invisibility-spec ()
+  "Add an `erc-match' property to the local spec."
+  (if erc-match-mode
+      (add-to-invisibility-spec 'erc-match)
+    (erc-with-all-buffers-of-server nil nil
+      (remove-from-invisibility-spec 'erc-match))))
+
+(defun erc-match-toggle-hidden-fools ()
+  "Toggle fool visibility.
+Expect `erc-hide-fools' or a function that does something similar
+to be in `erc-text-matched-hook'."
+  (interactive)
+  (if (memq 'erc-match (ensure-list buffer-invisibility-spec))
+      (remove-from-invisibility-spec 'erc-match)
+    (add-to-invisibility-spec 'erc-match)))
 
 (provide 'erc-match)
 
