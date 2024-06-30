@@ -1,0 +1,42 @@
+[package]
+name = "webrender"
+description = "Emacs draw api using Rust crate webrender"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+emacs-sys = { path = "../emacs-sys", features = ["webrender"] }
+font = { path = "../font", default-features = false }
+lisp-macros.path = "../lisp-macros"
+lisp-util.path = "../lisp-util"
+log.workspace = true
+libc.workspace = true
+gleam.workspace = true
+image.workspace = true
+bit-vec = "0.6.3"
+raw-window-handle.workspace = true
+euclid.workspace = true
+parking_lot.workspace = true
+webrender = { workspace = true, features = ["font_backend_swash"] }
+
+[build-dependencies]
+codegen = { path = "../codegen" }
+cfg_aliases.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+
+[features]
+default = ["window-system-winit", "surfman"]
+window-system-pgtk=["emacs-sys/window-system-pgtk", "font/window-system-pgtk", "gtk3"]
+window-system-winit=["emacs-sys/window-system-winit", "font/window-system-winit"]
+glutin=["emacs-sys/glutin"]
+surfman=["emacs-sys/surfman"]
+gtk3=["emacs-sys/gtk3"]
+capture=["webrender/capture", "webrender/serialize_program"]
+profiling=["webrender/profiler"]
+sw_compositor=["webrender/sw_compositor"]
