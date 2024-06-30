@@ -1,0 +1,27 @@
+name: Pull upstream
+on:
+  schedule:
+    - cron:  '0 0 * * SAT'
+  workflow_dispatch:
+    inputs:
+      empyt:
+        description: Not used
+        required: false
+jobs:
+  release_pull_request:
+    runs-on: ubuntu-latest
+    name: release_pull_request
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: Create PR to branch
+      uses: emacs-ng/github-action-pull-upstream@master
+      with:
+        upstream: https://github.com/emacs-mirror/emacs.git
+        upstream_branch: master
+        branch: master
+        pr_labels: pull-upstream
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITBOT_EMAIL: action@github.com
+        DRY_RUN: false
