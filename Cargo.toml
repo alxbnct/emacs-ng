@@ -1,0 +1,135 @@
+### Root package
+[package]
+authors = ["emacs-ng members"]
+name = "emacsng"
+description = "Experimental emacs fork"
+license = "GPL-3.0"
+version = "0.1.0"
+edition = "2021"
+build = "./crates/codegen/etc/build.rs"
+
+[dependencies]
+libc = "0.2.154"
+emacs-sys.path = "./crates/emacs-sys"
+lisp-async.path = "./crates/lisp-async"
+lsp-json.path = "./crates/lsp-json"
+git = { path = "./crates/git", optional = true }
+ng-module = { path = "./crates/ng-module", optional = true }
+js = { path = "./crates/js", optional = true }
+winit = { path = "./crates/winit", optional = true, default-features = false }
+pgtk = { path = "./crates/pgtk", optional = true, default-features = false }
+clippy = { version = "*", optional = true }
+log.workspace = true
+tracing = "0.1"
+
+[dependencies.tracing-subscriber]
+version = "0.3"
+features = [
+  "matchers",
+  "regex",
+  "once_cell",
+  "tracing",
+  "std",
+  "thread_local",
+  "env-filter"
+]
+
+[build-dependencies]
+codegen = { path = "./crates/codegen" }
+
+[lib]
+crate-type = ["staticlib"]
+path = "./src/emacs.rs"
+
+[features]
+
+# Compile with C xml2 library support.
+use-xml2 = []
+window-system-pgtk=["dep:pgtk"]
+wr_pgtk=["window-system-pgtk", "pgtk/webrender"]
+window-system-winit = ["dep:winit"]
+# Build with git2rs support
+libgit = ["git"]
+# Treat warnings as a build error on Travis.
+strict = []
+# Use JavaScript and Deno
+javascript = ["dep:js"]
+# Build with dynamic modules support's extensions.
+ng-module = ["dep:ng-module"]
+
+# Enable glyphs debugging code.
+# !!! Avoid using feature selection ? like below, the codegen
+# from lisp-util is not smart enought yet to figure out when winit
+# or pgtk should be enable or not
+# glyph-debug = ["winit?/capture", "pgtk?/capture"]
+# profiling = ["winit?/profiling", "pgtk?/profiling"]
+
+### Workspace configurations
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+libc = "0.2.154"
+log = "0.4"
+errno = "0.3"
+gtk = "0.18"
+gdk = "0.18"
+gtk-sys = "0.18"
+gdk-sys = "0.18"
+gdkwayland-sys = "0.18"
+gdkx11-sys = "0.18"
+parking_lot = "0.12"
+fxhash = "0.2"
+raw-window-handle = "0.6"
+image = "0.24"
+cfg_aliases = "0.2"
+gleam = "0.15"
+winit = { version = "0.29", default-features = false, features = ["rwh_06"]}
+arboard = "3.3"
+euclid = "0.22"
+tokio = "1"
+regex = "1.10"
+syn = "2"
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[workspace.dependencies.webrender]
+git = "https://github.com/declantsien/webrender.git"
+rev = "6766059a74135ee6ff26fd4f0f1f25db5c8e772e"
+default-features = false
+
+[workspace.dependencies.webrender_api]
+git = "https://github.com/declantsien/webrender.git"
+rev = "6766059a74135ee6ff26fd4f0f1f25db5c8e772e"
+default-features = false
+
+# Allow unwinding in functions called from C. See
+# https://www.reddit.com/r/rust/comments/565q1f/wrote_a_blogpost_from_my_experiences_the_arduous/d8h053m/
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+# This reduces the binary size from 125M to 70M due
+# to Deno inclusion
+opt-level = 'z' # Optimize for size
+
+### Patches
+
+# fontconfig font dirs patch
+[patch.crates-io.font-loader]
+git = "https://github.com/declantsien/rust-font-loader.git"
+rev = "9e1776052d906f6cd3b78aa701ffb2d657877830"
+
+# surfman raw-window-handle 0.6
+[patch.crates-io.surfman]
+git = "https://github.com/declantsien/surfman.git"
+rev = "51ac8db9f4584bcad9d8223103386bd05c5f2048"
+
+# glutin raw-window-handle 0.6
+[patch.crates-io.glutin]
+git = "https://github.com/declantsien/glutin.git"
+rev = "92a5ab0cc907ab3e1095ec6a09356aff8d93ade8"
