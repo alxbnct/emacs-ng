@@ -1,0 +1,32 @@
+name: "Nix CI"
+on:
+  pull_request:
+  push:
+jobs:
+  nix-build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Free up disk space for Ubuntu runner
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+      uses: ./.github/actions/free-disk-space
+    - uses: cachix/install-nix-action@v27
+
+    - name: Nix Flake Check
+      run: nix -Lv flake check
+
+    - uses: cachix/cachix-action@v15
+      with:
+        name: mycache
+        authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+        extraPullNames: emacsng
+
+    - name: Run Emacsng Exec
+      run: nix -Lv run .#emacsng-noNativeComp -- --version
